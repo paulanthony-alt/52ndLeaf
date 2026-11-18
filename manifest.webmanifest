@@ -1,0 +1,10 @@
+{
+  "name": "52nd Leaf",
+  "short_name": "52nd Leaf",
+  "description": "One photo of nature, every week.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#F4F1EA",
+  "theme_color": "#F4F1EA",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

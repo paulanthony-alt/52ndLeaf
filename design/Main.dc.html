@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>52nd Leaf — Home</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F1EA}
+a{color:#3F5A3C}a:hover{color:#2C4029}
+a,button{cursor:pointer;transition:background-color .2s ease-out,color .2s ease-out,border-color .2s ease-out,box-shadow .2s ease-out,transform .2s ease-out}
+.btn-primary:hover{background:#2C4029!important}
+.btn-ghost:hover{border-color:#3F5A3C!important;background:#ECEADF!important}
+.tile{transition:transform .2s ease-out,box-shadow .2s ease-out}
+a:hover .tile{transform:translateY(-2px);box-shadow:0 10px 28px rgba(63,90,60,.16)}
+a:focus-visible,button:focus-visible{outline:2px solid #3F5A3C;outline-offset:3px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}a:hover .tile{transform:none}}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #F4F1EA; color: #2B2B28; font-family: Inter, system-ui, sans-serif">
+<div style="max-width: 1120px; margin: 0 auto; padding: 0 32px; box-sizing: border-box">
+
+<header style="display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; padding: 28px 0">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px; text-decoration: none; color: #2B2B28">
+<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3F5A3C" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19c0-8.3 5.7-14 14-14 0 8.3-5.7 14-14 14z"></path><path d="M5 19l8-8"></path></svg>
+<span style="font-family: Fraunces, Georgia, serif; font-size: 22px; font-weight: 600; letter-spacing: -0.01em">52nd Leaf</span>
+</a>
+<nav aria-label="Main" style="display: flex; flex-wrap: wrap; align-items: center; gap: 28px; font-size: 15px">
+<a href="Journal.dc.html" style="text-decoration: none; color: #2B2B28">Journal</a>
+<a href="#how" style="text-decoration: none; color: #2B2B28">How it works</a>
+<a href="Entry.dc.html" class="btn-primary" style="text-decoration: none; background: #3F5A3C; color: #FFFFFF; padding: 12px 20px; border-radius: 999px; font-weight: 500">Add photo</a>
+</nav>
+</header>
+
+<section style="display: flex; flex-wrap: wrap; gap: 56px; align-items: center; padding: 72px 0 88px">
+<div style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 24px">
+<p style="margin: 0; font-size: 14px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: #3F5A3C">Week 47 of 52</p>
+<h1 style="margin: 0; font-family: Fraunces, Georgia, serif; font-weight: 500; font-size: 64px; line-height: 1.04; letter-spacing: -0.02em">One photo of nature, every week.</h1>
+<p style="margin: 0; font-size: 18px; line-height: 1.6; color: #55544D; max-width: 460px">Save one picture a week. Over a year, your photos show how the world around you changes, and give you a reason to notice the little things you'd usually walk past.</p>
+<div style="display: flex; flex-wrap: wrap; gap: 12px; padding-top: 8px">
+<a href="Entry.dc.html" class="btn-primary" style="text-decoration: none; background: #3F5A3C; color: #FFFFFF; padding: 16px 26px; border-radius: 999px; font-weight: 500; font-size: 16px">Add this week's photo</a>
+<a href="Journal.dc.html" class="btn-ghost" style="text-decoration: none; color: #2B2B28; padding: 16px 26px; border-radius: 999px; font-weight: 500; font-size: 16px; border: 1px solid #CFC9BA">See the journal</a>
+</div>
+</div>
+<div style="flex: 1 1 380px; min-width: 0">
+<div style="aspect-ratio: 4 / 5; border-radius: 24px; background: #C9D3B8; box-shadow: 0 16px 48px rgba(63, 90, 60, 0.14); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: #3F5A3C">
+<svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19c0-8.3 5.7-14 14-14 0 8.3-5.7 14-14 14z"></path><path d="M5 19l8-8"></path></svg>
+<span style="font-size: 14px; font-weight: 500">This week's photo</span>
+</div>
+</div>
+</section>
+
+<section aria-label="Progress" style="border-top: 1px solid #DDD7C9; border-bottom: 1px solid #DDD7C9; padding: 32px 0; display: flex; flex-wrap: wrap; gap: 24px; align-items: center; justify-content: space-between">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-family: Fraunces, Georgia, serif; font-size: 32px; font-weight: 500">46 leaves saved</span>
+<span style="font-size: 15px; color: #6B6A63">6 weeks left this year</span>
+</div>
+<div style="flex: 1 1 360px; max-width: 560px; height: 8px; border-radius: 999px; background: #E3DED1; overflow: hidden">
+<div style="width: 88%; height: 100%; background: #3F5A3C; border-radius: 999px"></div>
+</div>
+</section>
+
+<section id="how" style="padding: 88px 0 72px; display: flex; flex-direction: column; gap: 40px">
+<h2 style="margin: 0; font-family: Fraunces, Georgia, serif; font-weight: 500; font-size: 36px; letter-spacing: -0.01em">How it works</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 40px">
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font-family: Fraunces, Georgia, serif; font-size: 20px; color: #A2532C">01</span>
+<h3 style="margin: 0; font-size: 18px; font-weight: 600">Step outside</h3>
+<p style="margin: 0; font-size: 16px; line-height: 1.6; color: #55544D">A walk, a backyard, a window. Anywhere you can see something growing.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font-family: Fraunces, Georgia, serif; font-size: 20px; color: #A2532C">02</span>
+<h3 style="margin: 0; font-size: 18px; font-weight: 600">Take one photo</h3>
+<p style="margin: 0; font-size: 16px; line-height: 1.6; color: #55544D">Just one a week. Add a short note about what caught your eye.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font-family: Fraunces, Georgia, serif; font-size: 20px; color: #A2532C">03</span>
+<h3 style="margin: 0; font-size: 18px; font-weight: 600">Look back</h3>
+<p style="margin: 0; font-size: 16px; line-height: 1.6; color: #55544D">By the end of the year you'll have 52 photos to look back on.</p>
+</div>
+</div>
+</section>
+
+<section style="padding: 0 0 96px; display: flex; flex-direction: column; gap: 28px">
+<div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; justify-content: space-between">
+<h2 style="margin: 0; font-family: Fraunces, Georgia, serif; font-weight: 500; font-size: 36px; letter-spacing: -0.01em">Recent leaves</h2>
+<a href="Journal.dc.html" style="font-size: 15px; font-weight: 500">View all 52 weeks</a>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px">
+<a href="Leaf.dc.html" style="text-decoration: none; color: #2B2B28; display: flex; flex-direction: column; gap: 10px">
+<div class="tile" style="aspect-ratio: 1 / 1; border-radius: 16px; background: #D9B48C"></div>
+<span style="font-size: 14px; color: #55544D">Week 46</span>
+</a>
+<a href="Leaf.dc.html" style="text-decoration: none; color: #2B2B28; display: flex; flex-direction: column; gap: 10px">
+<div class="tile" style="aspect-ratio: 1 / 1; border-radius: 16px; background: #C99A6E"></div>
+<span style="font-size: 14px; color: #55544D">Week 45</span>
+</a>
+<a href="Leaf.dc.html" style="text-decoration: none; color: #2B2B28; display: flex; flex-direction: column; gap: 10px">
+<div class="tile" style="aspect-ratio: 1 / 1; border-radius: 16px; background: #D4A574"></div>
+<span style="font-size: 14px; color: #55544D">Week 44</span>
+</a>
+<a href="Leaf.dc.html" style="text-decoration: none; color: #2B2B28; display: flex; flex-direction: column; gap: 10px">
+<div class="tile" style="aspect-ratio: 1 / 1; border-radius: 16px; background: #BFA06A"></div>
+<span style="font-size: 14px; color: #55544D">Week 43</span>
+</a>
+</div>
+</section>
+
+<footer style="border-top: 1px solid #DDD7C9; padding: 28px 0 40px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; font-size: 14px; color: #6B6A63">
+<span>52nd Leaf — a nature journal, one week at a time.</span>
+<span>© 2026</span>
+</footer>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1560}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

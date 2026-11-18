@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>52nd Leaf — Journal</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F1EA}
+a{color:#3F5A3C}a:hover{color:#2C4029}
+a,button{cursor:pointer;transition:background-color .2s ease-out,color .2s ease-out,border-color .2s ease-out,box-shadow .2s ease-out,transform .2s ease-out}
+.btn-primary:hover{background:#2C4029!important}
+.tile:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(63,90,60,.18)}
+.add-slot:hover{background:#E6EBDD!important}
+a:focus-visible,button:focus-visible{outline:2px solid #3F5A3C;outline-offset:3px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}.tile:hover{transform:none}}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #F4F1EA; color: #2B2B28; font-family: Inter, system-ui, sans-serif">
+<div style="max-width: 1120px; margin: 0 auto; padding: 0 32px; box-sizing: border-box">
+
+<header style="display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; padding: 28px 0">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px; text-decoration: none; color: #2B2B28">
+<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3F5A3C" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19c0-8.3 5.7-14 14-14 0 8.3-5.7 14-14 14z"></path><path d="M5 19l8-8"></path></svg>
+<span style="font-family: Fraunces, Georgia, serif; font-size: 22px; font-weight: 600; letter-spacing: -0.01em">52nd Leaf</span>
+</a>
+<nav aria-label="Main" style="display: flex; flex-wrap: wrap; align-items: center; gap: 28px; font-size: 15px">
+<a href="Journal.dc.html" aria-current="page" style="text-decoration: none; color: #3F5A3C; font-weight: 600">Journal</a>
+<a href="Main.dc.html#how" style="text-decoration: none; color: #2B2B28">How it works</a>
+<a href="Entry.dc.html" class="btn-primary" style="text-decoration: none; background: #3F5A3C; color: #FFFFFF; padding: 12px 20px; border-radius: 999px; font-weight: 500">Add photo</a>
+</nav>
+</header>
+
+<section style="padding: 56px 0 40px; display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-end; justify-content: space-between">
+<div style="display: flex; flex-direction: column; gap: 12px">
+<p style="margin: 0; font-size: 14px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: #3F5A3C">Your year in nature</p>
+<h1 style="margin: 0; font-family: Fraunces, Georgia, serif; font-weight: 500; font-size: 56px; line-height: 1.05; letter-spacing: -0.02em">2026 Journal</h1>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 24px; font-size: 14px; color: #55544D">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 12px; height: 12px; border-radius: 3px; background: #9DB58A"></span>Saved</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 12px; height: 12px; border-radius: 3px; border: 1.5px dashed #3F5A3C; box-sizing: border-box"></span>This week</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 12px; height: 12px; border-radius: 3px; border: 1px solid #CFC9BA; box-sizing: border-box"></span>Still to come</span>
+</div>
+</section>
+
+<section aria-label="52 weeks" style="padding: 0 0 96px">
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 14px 12px">
+<sc-for list="{{weeks}}" as="w" hint-placeholder-count="52">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<sc-if value="{{w.filled}}" hint-placeholder-val="{{ true }}">
+<a href="Leaf.dc.html" class="tile" aria-label="Week {{w.n}} photo" style="display: block; aspect-ratio: 1 / 1; border-radius: 10px; background: {{w.bg}}"></a>
+</sc-if>
+<sc-if value="{{w.current}}" hint-placeholder-val="{{ false }}">
+<a href="Entry.dc.html" class="add-slot" aria-label="Add photo for week {{w.n}}" style="aspect-ratio: 1 / 1; border-radius: 10px; border: 1.5px dashed #3F5A3C; box-sizing: border-box; display: flex; align-items: center; justify-content: center; color: #3F5A3C; text-decoration: none">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+</a>
+</sc-if>
+<sc-if value="{{w.future}}" hint-placeholder-val="{{ false }}">
+<div style="aspect-ratio: 1 / 1; border-radius: 10px; border: 1px solid #DDD7C9; box-sizing: border-box; display: flex; align-items: center; justify-content: center; color: #CFC9BA">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19c0-8.3 5.7-14 14-14 0 8.3-5.7 14-14 14z"></path><path d="M5 19l8-8"></path></svg>
+</div>
+</sc-if>
+<span style="font-size: 12px; color: {{w.labelColor}}; font-weight: {{w.labelWeight}}">{{w.label}}</span>
+</div>
+</sc-for>
+</div>
+</section>
+
+<footer style="border-top: 1px solid #DDD7C9; padding: 28px 0 40px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; font-size: 14px; color: #6B6A63">
+<span>46 of 52 weeks saved</span>
+<span>© 2026</span>
+</footer>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"thisWeek":{"editor":"int","default":47,"min":1,"max":52,"section":"Journal"},"$preview":{"width":1280,"height":1020}}'>
+class Component extends DCLogic {
+renderVals() {
+const now = this.props.thisWeek ?? 47;
+const tints = [
+'#C7CFC9','#BFC8C4','#CBD1CB','#B9C3BF','#C4CCC6','#D0D4CC','#BCC6C0','#C9CFC4','#C2CDB5','#B8C9A4',
+'#B0C796','#A8C48C','#9DBE82','#93B878','#A3C487','#8EB372','#86AD6A','#7FA663','#8BAE6B','#7AA15E',
+'#86A866','#7C9F5C','#739858','#7E9E5F','#86A262','#90A867','#99AC6A','#A2B06C','#AEB46E','#B8B46E',
+'#BFB16B','#C6AC68','#CCA564','#D2A060','#D69A5C','#D49357','#CE8B53','#C9834F','#C27C4C','#BD7A4F',
+'#C08458','#C48E62','#BF976C','#BFA06A','#D4A574','#C99A6E','#D9B48C','#C4C2B8','#C2C6C2','#BCC2C0',
+'#C7CBC8','#C0C6C4'
+];
+const weeks = [];
+for (let i = 1; i <= 52; i++) {
+const filled = i < now, current = i === now, future = i > now;
+weeks.push({
+n: i, filled, current, future,
+bg: tints[i - 1],
+label: current ? 'This week' : 'Wk ' + i,
+labelColor: current ? '#3F5A3C' : (future ? '#6B6A63' : '#55544D'),
+labelWeight: current ? 600 : 400
+});
+}
+return { weeks };
+}
+}
+</script>
+</body>
+</html>
