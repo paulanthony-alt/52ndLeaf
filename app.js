@@ -39,6 +39,13 @@
   // The Southern Hemisphere flips the seasons. There is no setting for it yet, so this stays 'north'.
   const getHemisphere = () => (storage.get('leaf.hemisphere') === 'south' ? 'south' : 'north');
   const seasonOf = (year, week) => LeafWeeks.season(year, week, getHemisphere());
+  // Appearance: follow the device unless the user picked light or dark.
+  function applyTheme() {
+    const t = storage.get('leaf.theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    else document.documentElement.removeAttribute('data-theme');
+  }
+  applyTheme();
   const now = () => weekOf(new Date());
   // -1 past, 0 this week, 1 future
   function when(year, week) {
@@ -843,6 +850,69 @@
     });
   }
 
+  /* ---------------------------------------------------------------- share one leaf as an image */
+  // Breaks text into at most maxLines lines that fit maxW, ending with an ellipsis if it runs over.
+  function wrapLines(ctx, text, maxW, maxLines) {
+    const words = String(text || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = '', i = 0;
+    while (i < words.length && lines.length < maxLines) {
+      const test = cur ? `${cur} ${words[i]}` : words[i];
+      if (ctx.measureText(test).width <= maxW || !cur) { cur = test; i++; }
+      else { lines.push(cur); cur = ''; }
+    }
+    if (cur && lines.length < maxLines) lines.push(cur);
+    if (lines.join(' ').split(' ').length < words.length) {
+      let last = lines[lines.length - 1];
+      while (last && ctx.measureText(last + '…').width > maxW) last = last.slice(0, -1);
+      lines[lines.length - 1] = last.trimEnd() + '…';
+    }
+    return lines;
+  }
+  async function buildLeafCard(leaf, year, week) {
+    await fontsReady();
+    const W = 1080, H = 1350, pad = 84, textW = W - pad * 2;
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const ctx = c.getContext('2d');
+    const src = await decodePhoto(leaf.photo);
+    drawCover(ctx, src, 0, 0, W, H);
+    if (src.close) src.close();
+    const g = ctx.createLinearGradient(0, H * 0.45, 0, H);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, 'rgba(0,0,0,0.78)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, H * 0.45, W, H * 0.55);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    let y = H - 420;
+    ctx.globalAlpha = 0.9;
+    ctx.font = '500 32px Inter, system-ui, sans-serif';
+    ctx.fillText(`WEEK ${week} · ${formatRange(year, week).toUpperCase()} · ${seasonOf(year, week).toUpperCase()}`, pad, y);
+    ctx.globalAlpha = 1;
+    y += 84;
+    if (leaf.title) {
+      ctx.font = '500 84px Fraunces, Georgia, serif';
+      for (const line of wrapLines(ctx, leaf.title, textW, 2)) { ctx.fillText(line, pad, y); y += 94; }
+      y += 8;
+    }
+    if (leaf.note) {
+      ctx.font = '400 36px Inter, system-ui, sans-serif';
+      for (const line of wrapLines(ctx, leaf.note, textW, leaf.title ? 2 : 3)) { ctx.fillText(line, pad, y); y += 50; }
+    }
+    ctx.globalAlpha = 0.95;
+    ctx.font = '600 30px Fraunces, Georgia, serif';
+    ctx.fillText('52nd Leaf', pad, H - pad + 6);
+    ctx.textAlign = 'right';
+    ctx.font = '400 28px Inter, system-ui, sans-serif';
+    ctx.fillText(String(year), W - pad, H - pad + 6);
+    ctx.globalAlpha = 1;
+    return toBlob(c, 'image/jpeg', 0.92);
+  }
+
   async function viewLeaf(year, week) {
     const leaves = await store.all();
     const leaf = leaves.find((l) => l.year === year && l.week === week);
@@ -900,6 +970,7 @@
           <div class="leaf-tools">
             <a href="#/add/${year}/${week}" class="text-btn">Edit</a>
             ${leaves.length > 1 ? `<a href="${compareHref(leaf, leaves)}" class="text-btn">Compare</a>` : ''}
+            <button type="button" class="text-btn" id="share-leaf">Share image</button>
             <button type="button" class="text-btn danger" id="delete">Delete</button>
           </div>
         </div>
@@ -921,6 +992,19 @@
         </div>
       </section>` : ''}`;
 
+    $('#share-leaf').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.textContent = 'Making image…';
+      try {
+        await saveFile(await buildLeafCard(leaf, year, week), `52nd-leaf-week-${week}-${year}.jpg`);
+      } catch (err) {
+        toast("The image couldn't be made. Try another browser.");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Share image';
+      }
+    });
     $('#delete').addEventListener('click', async () => {
       if (!confirm(`Delete the photo and note for week ${week}? This can't be undone.`)) return;
       await store.remove(year, week);
@@ -1572,6 +1656,9 @@
     const total = leaves.reduce((s, l) => s + (l.photo ? l.photo.size : 0), 0);
     const last = storage.get('leaf.lastBackup');
     const lastDate = last && !isNaN(new Date(last)) ? new Date(last) : null;
+    const DAY_NAMES = [['MO', 'Monday'], ['TU', 'Tuesday'], ['WE', 'Wednesday'], ['TH', 'Thursday'], ['FR', 'Friday'], ['SA', 'Saturday'], ['SU', 'Sunday']];
+    const [remDay, remTime] = String(storage.get('leaf.reminder') || 'MO|09:00').split('|');
+    const rem = { day: remDay, time: remTime || '09:00' };
 
     $('#app').innerHTML = `
       <section class="review-head">
@@ -1601,13 +1688,66 @@
         <p class="error" id="rs-error" role="alert" hidden></p>
       </section>
 
-      <section class="panel" aria-labelledby="st-h">
-        <h2 class="h2" id="st-h">Hints</h2>
+      <section class="panel" aria-labelledby="pf-h">
+        <h2 class="h2" id="pf-h">Preferences</h2>
         <label class="check"><input type="checkbox" id="st-hints"${storage.get('leaf.hints') === 'off' ? '' : ' checked'}> Show a “what to notice” idea when I add a photo</label>
+        <div class="field pref">
+          <label for="st-theme">Appearance</label>
+          <select id="st-theme">
+            <option value="system">Match my device</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </div>
+        <div class="field pref">
+          <label for="st-hemi">Seasons</label>
+          <select id="st-hemi">
+            <option value="north">Northern Hemisphere</option>
+            <option value="south">Southern Hemisphere</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="rm-h">
+        <h2 class="h2" id="rm-h">Weekly reminder</h2>
+        <p>Download a calendar event that repeats every week at the time you pick. It opens in your calendar app, so no account or notification permission is needed.</p>
+        <div class="field-row">
+          <div class="field">
+            <label for="rm-day">Day</label>
+            <select id="rm-day">${DAY_NAMES.map(([v, n]) => `<option value="${v}"${v === rem.day ? ' selected' : ''}>${n}</option>`).join('')}</select>
+          </div>
+          <div class="field">
+            <label for="rm-time">Time</label>
+            <input id="rm-time" type="time" value="${rem.time}">
+          </div>
+        </div>
+        <div class="actions" style="padding-top:0">
+          <button type="button" class="btn-ghost btn-sm" id="rm-go">Download reminder</button>
+        </div>
+        <p class="review-note" id="rm-status" role="status"></p>
       </section>`;
     footer('');
 
     $('#st-hints').addEventListener('change', (e) => storage.set('leaf.hints', e.target.checked ? 'on' : 'off'));
+    $('#st-theme').value = storage.get('leaf.theme') || 'system';
+    $('#st-theme').addEventListener('change', (e) => { storage.set('leaf.theme', e.target.value); applyTheme(); });
+    $('#st-hemi').value = getHemisphere();
+    $('#st-hemi').addEventListener('change', (e) => {
+      storage.set('leaf.hemisphere', e.target.value);
+      toast(e.target.value === 'south' ? 'Seasons now follow the Southern Hemisphere' : 'Seasons now follow the Northern Hemisphere');
+    });
+    $('#rm-go').addEventListener('click', async () => {
+      const day = $('#rm-day').value, time = $('#rm-time').value, status = $('#rm-status');
+      const ics = LeafCore.reminderIcs({ day, time, now: new Date(), nowUtc: new Date() });
+      if (!ics) { status.textContent = 'Pick a day and a time first.'; return; }
+      storage.set('leaf.reminder', `${day}|${time}`);
+      try {
+        await saveFile(new Blob([ics], { type: 'text/calendar' }), '52nd-leaf-reminder.ics');
+        status.textContent = 'Reminder downloaded. Open the file to add it to your calendar.';
+      } catch (e) {
+        status.textContent = "The reminder couldn't be saved. Try another browser.";
+      }
+    });
     $('#rs-label').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#rs-file').click(); } });
 
     const go = $('#bk-go'), status = $('#bk-status');

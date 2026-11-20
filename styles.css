@@ -20,6 +20,26 @@
   --danger: #9A3B2A;
   --serif: Fraunces, Georgia, serif;
   --sans: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --btn: #3F5A3C; --btn-hover: #2C4029; --missed: #EDE9DF; --danger-bg: #F3E6E0;
+}
+/* Dark: the same tokens, redefined. An explicit choice in the app wins over the device setting both ways. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1B1D19; --ink: #ECE8DC; --ink-soft: #D6D2C6; --muted: #B9B5A8; --muted-2: #9A9689;
+    --green: #A9C493; --green-dark: #C5DAB0; --sage: #7F9E6E; --sage-pale: #26321F; --sage-hover: #2C3A26;
+    --hero-bg: #2E3A29; --surface: #23261F; --field: #262921; --line: #3A3D34; --line-strong: #55584C;
+    --field-hover: #777A6C; --track: #33362D; --rust: #D9A07A; --danger: #E8A18F;
+    --btn: #3F5A3C; --btn-hover: #4F6E4B; --missed: #2A2D25; --danger-bg: #3A2420;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+    --bg: #1B1D19; --ink: #ECE8DC; --ink-soft: #D6D2C6; --muted: #B9B5A8; --muted-2: #9A9689;
+    --green: #A9C493; --green-dark: #C5DAB0; --sage: #7F9E6E; --sage-pale: #26321F; --sage-hover: #2C3A26;
+    --hero-bg: #2E3A29; --surface: #23261F; --field: #262921; --line: #3A3D34; --line-strong: #55584C;
+    --field-hover: #777A6C; --track: #33362D; --rust: #D9A07A; --danger: #E8A18F;
+    --btn: #3F5A3C; --btn-hover: #4F6E4B; --missed: #2A2D25; --danger-bg: #3A2420;
+    color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -72,13 +92,13 @@ main:focus { outline: none; }
   text-decoration: none; border-radius: 999px; font: inherit; font-weight: 500;
   font-size: 16px; padding: 16px 26px; line-height: 1.2;
 }
-.btn-primary { background: var(--green); color: #fff; border: 0; }
-.btn-primary:hover { background: var(--green-dark); color: #fff; }
+.btn-primary { background: var(--btn); color: #fff; border: 0; }
+.btn-primary:hover { background: var(--btn-hover); color: #fff; }
 .btn-primary[disabled] { opacity: .6; cursor: progress; }
 .btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--line-strong); }
 .btn-ghost:hover { border-color: var(--green); background: var(--surface); color: var(--ink); }
 .btn-danger { background: transparent; color: var(--danger); border: 1px solid transparent; }
-.btn-danger:hover { border-color: var(--danger); background: #F3E6E0; color: var(--danger); }
+.btn-danger:hover { border-color: var(--danger); background: var(--danger-bg); color: var(--danger); }
 .btn-sm { padding: 12px 20px; font-size: 15px; }
 
 /* ---------- Type ---------- */
@@ -120,7 +140,7 @@ main:focus { outline: none; }
 .progress-count strong { font-family: var(--serif); font-size: 32px; font-weight: 500; }
 .progress-count span { font-size: 15px; color: var(--muted-2); }
 .track { flex: 1 1 360px; max-width: 560px; height: 8px; border-radius: 999px; background: var(--track); overflow: hidden; }
-.track > div { height: 100%; background: var(--green); border-radius: 999px; }
+.track > div { height: 100%; background: var(--btn); border-radius: 999px; }
 
 .how { padding: 88px 0 72px; display: flex; flex-direction: column; gap: 40px; scroll-margin-top: 16px; }
 .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 40px; }
@@ -178,7 +198,7 @@ a:hover .tile, a.tile:hover { transform: translateY(-2px); box-shadow: 0 10px 28
 .legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
 .legend .l-saved { background: var(--sage); }
 .legend .l-now { border: 1.5px dashed var(--green); }
-.legend .l-missed { background: #EDE9DF; }
+.legend .l-missed { background: var(--missed); }
 .legend .l-future { border: 1px solid var(--line-strong); }
 
 .weeks { padding: 0 0 96px; display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 14px 12px; }
@@ -193,7 +213,7 @@ a:hover .tile, a.tile:hover { transform: translateY(-2px); box-shadow: 0 10px 28
 }
 .slot-now { border: 1.5px dashed var(--green); color: var(--green); }
 .slot-now:hover { background: var(--sage-hover); }
-.slot-missed { background: #EDE9DF; color: transparent; }
+.slot-missed { background: var(--missed); color: transparent; }
 .slot-missed:hover, .slot-missed:focus-visible { background: var(--sage-hover); color: var(--green); }
 .slot-future { border: 1px solid var(--line); color: var(--line-strong); }
 
@@ -208,7 +228,7 @@ a:hover .tile, a.tile:hover { transform: translateY(-2px); box-shadow: 0 10px 28
 }
 .frame.is-empty { border: 1.5px dashed var(--sage); }
 .frame.is-over { border-color: var(--green); }
-.frame.is-photo { background: var(--ink); cursor: grab; touch-action: none; }
+.frame.is-photo { background: #141512; cursor: grab; touch-action: none; }
 .frame.is-photo:active { cursor: grabbing; }
 .frame.is-camera { background: #1D1F1B; }
 .frame:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
@@ -286,7 +306,7 @@ a:hover .tile, a.tile:hover { transform: translateY(-2px); box-shadow: 0 10px 28
 }
 .text-btn:hover { background: var(--surface); }
 .text-btn.danger { color: var(--danger); }
-.text-btn.danger:hover { background: #F3E6E0; }
+.text-btn.danger:hover { background: var(--danger-bg); }
 
 .changed { padding: 0 0 96px; display: flex; flex-direction: column; gap: 20px; }
 .changed .h2 { font-size: 28px; }
@@ -321,7 +341,7 @@ a:hover .tile, a.tile:hover { transform: translateY(-2px); box-shadow: 0 10px 28
 .tl { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; }
 .tl canvas, .tl video {
   width: 100%; max-width: 360px; height: auto; aspect-ratio: 4 / 5; border-radius: 20px;
-  background: var(--green); box-shadow: 0 16px 48px rgba(63, 90, 60, 0.14); display: block;
+  background: var(--btn); box-shadow: 0 16px 48px rgba(63, 90, 60, 0.14); display: block;
 }
 .tl-side { flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
 
@@ -365,7 +385,7 @@ a:hover .tile, a.tile:hover { transform: translateY(-2px); box-shadow: 0 10px 28
 .seg { display: inline-flex; align-self: flex-start; border: 1px solid var(--line-strong); border-radius: 999px; padding: 3px; gap: 2px; }
 .seg button { font: inherit; font-size: 14px; font-weight: 500; border: 0; background: transparent; color: var(--ink); padding: 9px 18px; border-radius: 999px; }
 .seg button:hover { background: var(--surface); }
-.seg button[aria-pressed="true"] { background: var(--green); color: #fff; }
+.seg button[aria-pressed="true"] { background: var(--btn); color: #fff; }
 .slider {
   --pos: 50%; position: relative; aspect-ratio: 4 / 5; width: 100%; max-width: 560px; border-radius: 24px; overflow: hidden;
   background: var(--hero-bg); box-shadow: 0 16px 48px rgba(63, 90, 60, 0.14); touch-action: pan-y; user-select: none; -webkit-user-select: none;
@@ -471,3 +491,6 @@ label.btn-ghost { cursor: pointer; }
   *, *::before, *::after { transition: none !important; }
   a:hover .tile, a.tile:hover { transform: none; }
 }
+
+/* ---------- Preferences ---------- */
+.pref { max-width: 360px; }

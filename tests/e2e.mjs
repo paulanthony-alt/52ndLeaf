@@ -297,6 +297,58 @@ await page.waitForSelector('#cmp-stage .slider, #cmp-stage .side-by-side');
 ok('offline: the app and your photos open with no connection');
 await context.setOffline(false);
 
+/* ---- 8b. preferences: appearance, seasons, reminder, share image */
+await go('#/backup');
+await page.selectOption('#st-theme', 'dark');
+assert.equal(await page.getAttribute('html', 'data-theme'), 'dark');
+assert.notEqual(await page.$eval('body', (b) => getComputedStyle(b).backgroundColor), 'rgb(244, 241, 234)');
+await page.selectOption('#st-theme', 'light');
+assert.equal(await page.getAttribute('html', 'data-theme'), 'light');
+assert.equal(await page.$eval('body', (b) => getComputedStyle(b).backgroundColor), 'rgb(244, 241, 234)');
+await page.selectOption('#st-theme', 'system');
+assert.equal(await page.getAttribute('html', 'data-theme'), null);
+await page.selectOption('#st-theme', 'dark');
+await page.goto(base + '#/leaf/2026/46'); await page.waitForSelector('.leaf-photo img');
+await page.screenshot({ path: path.join(out, 'desk-dark-leaf.png') });
+await page.goto(base + '#/backup'); await page.waitForSelector('#st-theme');
+await page.selectOption('#st-theme', 'system');
+ok('appearance: dark and light override the device, "match my device" hands control back');
+
+await go('#/leaf/2026/47');
+assert.equal(await page.locator('.meta dd').nth(2).textContent(), 'Autumn');
+await go('#/backup');
+await page.selectOption('#st-hemi', 'south');
+await go('#/leaf/2026/47');
+assert.equal(await page.locator('.meta dd').nth(2).textContent(), 'Spring');
+await go('#/backup');
+await page.selectOption('#st-hemi', 'north');
+await go('#/leaf/2026/47');
+assert.equal(await page.locator('.meta dd').nth(2).textContent(), 'Autumn');
+ok('Southern Hemisphere flips the season shown on a leaf, and back again');
+
+await go('#/backup');
+await page.selectOption('#rm-day', 'SA');
+await page.fill('#rm-time', '18:15');
+const [icsDl] = await Promise.all([page.waitForEvent('download'), page.click('#rm-go')]);
+assert.equal(icsDl.suggestedFilename(), '52nd-leaf-reminder.ics');
+const icsFile = path.join(out, 'reminder.ics');
+await icsDl.saveAs(icsFile);
+const ics = fs.readFileSync(icsFile, 'utf8');
+assert.match(ics, /RRULE:FREQ=WEEKLY;BYDAY=SA/);
+assert.match(ics, /DTSTART:\d{8}T181500/);
+assert.match(ics, /BEGIN:VALARM/);
+ok('weekly reminder downloads as a calendar event for the chosen day and time');
+await go('#/backup');
+assert.equal(await page.inputValue('#rm-day'), 'SA', 'remembers the day');
+
+await go('#/leaf/2026/46');
+const [imgDl] = await Promise.all([page.waitForEvent('download'), page.click('#share-leaf')]);
+assert.equal(imgDl.suggestedFilename(), '52nd-leaf-week-46-2026.jpg');
+await imgDl.saveAs(path.join(out, 'share-leaf.jpg'));
+const jpg = fs.readFileSync(path.join(out, 'share-leaf.jpg'));
+assert.equal(jpg[0], 0xff); assert.equal(jpg[1], 0xd8, 'a real JPEG');
+ok('a leaf can be saved as a shareable image');
+
 /* ---- 9. phone width */
 const phone = await context.newPage();
 await phone.setViewportSize({ width: 390, height: 844 });

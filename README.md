@@ -44,8 +44,14 @@ Then visit http://localhost:8000. It also works on any static host (GitHub Pages
 - **Works offline**: a service worker keeps a copy of the app, so it opens with no signal. On a phone,
   use your browser's "Add to Home Screen" (or the Install button in the footer where offered).
   Needs HTTPS or localhost.
+- **Preferences** (on the Backup page):
+  - **Appearance:** match your device, or force light or dark. Dark mode is a full palette, not an inversion.
+  - **Seasons:** Northern or Southern Hemisphere. This changes the season shown on each leaf and the hints.
+- **Weekly reminder:** downloads a repeating calendar event (`.ics`) for the day and time you pick. It uses
+  your local time, so it keeps its time when you travel. No notification permission or account is needed.
 - **Leaf**: the photo full-size with its note, place, weather and season, links to the
-  previous and next leaves, and a "How it's changed" strip of the last seven weeks.
+  previous and next leaves, and a "How it's changed" strip of the last seven weeks. **Share image**
+  saves a 4:5 card with the photo, week, dates, season and note (on a phone it opens the share sheet).
 
 ## Tests
 
@@ -69,8 +75,7 @@ and restore round trip, location data being stripped, offline use, and phone-wid
   uploaded anywhere. Large camera photos are resized to 1800px on the long edge before saving.
 - Weeks start on Monday and follow ISO week numbers. In years with an ISO week 53, those
   last few days are folded into week 52, so every year has exactly 52 leaves.
-- Seasons use northern-hemisphere months. The code already supports the southern hemisphere (hints
-  follow it too), but there is no setting for it yet.
+- Seasons default to northern-hemisphere months; switch to the southern hemisphere under Backup & restore.
 
 Because data lives in the browser, clearing site data or using a private window will lose
 it, and it doesn't sync between devices. Make a backup now and then.

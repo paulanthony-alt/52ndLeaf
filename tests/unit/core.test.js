@@ -66,3 +66,42 @@ test('planRestore keeps weeks you already have unless told to replace them', () 
   assert.equal(replace.kept, 0);
   assert.deepEqual(C.planRestore([], incoming, false).write.length, 3);
 });
+
+test('reminderIcs: a weekly event on the chosen day, starting at the next occurrence', () => {
+  const now = new Date(2026, 10, 20, 12, 0); // Friday 20 Nov 2026
+  const ics = C.reminderIcs({ day: 'MO', time: '09:30', now, nowUtc: new Date(Date.UTC(2026, 10, 20, 12)) });
+  assert.ok(ics.includes('DTSTART:20261123T093000'), 'Monday 23 Nov');
+  assert.ok(ics.includes('RRULE:FREQ=WEEKLY;BYDAY=MO'));
+  assert.ok(ics.includes('DTSTAMP:20261120T120000Z'));
+  assert.ok(ics.startsWith('BEGIN:VCALENDAR\r\n') && ics.endsWith('END:VCALENDAR\r\n'));
+  assert.ok(ics.split('\r\n').every((l) => l.length <= 75), 'lines fit the 75-character limit');
+  assert.equal(ics.split('\n').length, ics.split('\r\n').length, 'every line break is CRLF');
+});
+
+test('reminderIcs: today if the time is still ahead, otherwise a week later', () => {
+  const monMorning = new Date(2026, 10, 23, 8, 0);
+  assert.ok(C.reminderIcs({ day: 'MO', time: '09:00', now: monMorning }).includes('DTSTART:20261123T090000'));
+  const monLater = new Date(2026, 10, 23, 10, 0);
+  assert.ok(C.reminderIcs({ day: 'MO', time: '09:00', now: monLater }).includes('DTSTART:20261130T090000'));
+});
+
+test('reminderIcs: the first event falls on the chosen weekday for every day', () => {
+  const names = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+  for (const day of Object.keys(names)) {
+    for (let k = 0; k < 7; k++) {
+      const now = new Date(2026, 10, 16 + k, 12, 0);
+      const ics = C.reminderIcs({ day, time: '18:15', now });
+      const [, y, mo, d] = /DTSTART:(\d{4})(\d{2})(\d{2})T181500/.exec(ics);
+      assert.equal(new Date(+y, +mo - 1, +d).getDay(), names[day], `${day} from ${now.toDateString()}`);
+      assert.ok(new Date(+y, +mo - 1, +d, 18, 15) > now);
+    }
+  }
+});
+
+test('reminderIcs refuses bad days and times', () => {
+  const now = new Date(2026, 10, 20, 12);
+  for (const [day, time] of [['XX', '09:00'], ['MO', '9:00'], ['MO', '25:00'], ['MO', '12:60'], ['MO', ''], [undefined, '09:00'], ['MO', undefined]]) {
+    assert.equal(C.reminderIcs({ day, time, now }), null, `${day} ${time}`);
+  }
+  assert.equal(C.reminderIcs({ day: 'MO', time: '09:00', now: 'tomorrow' }), null);
+});

@@ -77,5 +77,44 @@
     return { add, clash, write: replace ? add.concat(clash) : add, kept: replace ? 0 : clash.length };
   }
 
-  return { normalizeSpot, spotsFrom, validateBackup, planRestore };
+  /* ---- weekly reminder: a repeating calendar event (RFC 5545) */
+  const DAYS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+  const p2 = (n) => String(n).padStart(2, '0');
+  // Floating local time, so the reminder keeps its time when you travel.
+  // Returns null for a bad day or time. The first event is the next occurrence, today if the time is still ahead.
+  function reminderIcs({ day, time, now, nowUtc }) {
+    const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(time || ''));
+    const want = DAYS.indexOf(day);
+    if (!m || want < 0 || !(now instanceof Date) || isNaN(now)) return null;
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() + ((want - now.getDay() + 7) % 7), +m[1], +m[2], 0);
+    if (start <= now) start.setDate(start.getDate() + 7);
+    const local = (d) => `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}T${p2(d.getHours())}${p2(d.getMinutes())}00`;
+    const u = nowUtc || new Date();
+    const stamp = `${u.getUTCFullYear()}${p2(u.getUTCMonth() + 1)}${p2(u.getUTCDate())}T${p2(u.getUTCHours())}${p2(u.getUTCMinutes())}${p2(u.getUTCSeconds())}Z`;
+    return [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//52nd Leaf//Weekly reminder//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      'BEGIN:VEVENT',
+      'UID:weekly-reminder@52nd-leaf',
+      `DTSTAMP:${stamp}`,
+      `DTSTART:${local(start)}`,
+      'DURATION:PT15M',
+      `RRULE:FREQ=WEEKLY;BYDAY=${day}`,
+      "SUMMARY:Take this week's leaf",
+      'DESCRIPTION:One photo of nature. Open 52nd Leaf to add it.',
+      'TRANSP:TRANSPARENT',
+      'BEGIN:VALARM',
+      'ACTION:DISPLAY',
+      "DESCRIPTION:Take this week's leaf",
+      'TRIGGER:PT0M',
+      'END:VALARM',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n') + '\r\n';
+  }
+
+  return { normalizeSpot, spotsFrom, validateBackup, planRestore, reminderIcs };
 });
