@@ -1,0 +1,12 @@
+{
+  "name": "52nd-leaf",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A personal nature photo journal: one photo of nature, every week.",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "test": "node --test tests/unit/*.test.js",
+    "test:zones": "TZ=Pacific/Auckland node --test tests/unit/*.test.js && TZ=America/Los_Angeles node --test tests/unit/*.test.js",
+    "test:e2e": "node tests/e2e.mjs"
+  }
+}

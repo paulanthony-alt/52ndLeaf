@@ -29,21 +29,51 @@ Then visit http://localhost:8000. It also works on any static host (GitHub Pages
 - **Year in review** (`#/review`): all 52 weeks as a contact sheet, one row per quarter, which you
   can save as an image, plus a timelapse of every leaf you can play or save as a video
   (MP4 or WebM, depending on the browser). Linked from Home and the Journal.
+- **Compare** (`#/compare`): pick any two leaves and slide between them, or view them side by side.
+  Opens from a leaf, the Journal, or the footer.
+- **Spots** (`#/spots`): give a photo a spot name, like "Maple by the trail". Photos from the same
+  spot are grouped, and when you add another the guide shows your last photo from that spot. A spot
+  page shows its photos in order, can compare first and latest, and can be renamed or merged.
+- **File photos in the right week**: if a photo's date falls in a different week, the add screen
+  offers to move to that week. Only the date is read, and nothing is sent anywhere.
+- **Hints**: a short "what to notice" idea for the season on the add screen (14 per season).
+  Turn them off from the hint card or under Backup & restore.
+- **Backup & restore** (`#/backup`): download everything as one `.json` file and restore it later,
+  on this or another device. Location data is removed from photos. Restoring keeps weeks you
+  already have unless you choose to replace them.
+- **Works offline**: a service worker keeps a copy of the app, so it opens with no signal. On a phone,
+  use your browser's "Add to Home Screen" (or the Install button in the footer where offered).
+  Needs HTTPS or localhost.
 - **Leaf**: the photo full-size with its note, place, weather and season, links to the
   previous and next leaves, and a "How it's changed" strip of the last seven weeks.
+
+## Tests
+
+```bash
+npm test            # unit tests: week math, backup format, spots, photo dates, hints (no dependencies)
+npm run test:zones  # the same, in Auckland and Los Angeles time
+npm run test:e2e    # drives the real app in a browser (needs Playwright and Chromium)
+```
+
+The browser test covers adding, editing and spots, the guide, week suggestions, compare, a full backup
+and restore round trip, location data being stripped, offline use, and phone-width layout.
 
 ## How it works
 
 - `index.html`, `styles.css`, `app.js`: plain HTML, CSS and JavaScript with hash routing
-  (`#/journal`, `#/add/2026/47`, `#/leaf/2026/47`).
+  (`#/journal`, `#/add/2026/47`, `#/leaf/2026/47`, `#/compare`, `#/spots`, `#/backup`).
+- `weeks.js`, `core.js`, `exif.js`, `prompts.js`: logic with no page code, shared by the app and the tests.
+- `sw.js`: the service worker. Pages and code load from the network first (so updates arrive) and fall
+  back to the saved copy; fonts are saved after the first load.
 - Photos and notes are stored **on this device** in the browser's IndexedDB. Nothing is
   uploaded anywhere. Large camera photos are resized to 1800px on the long edge before saving.
 - Weeks start on Monday and follow ISO week numbers. In years with an ISO week 53, those
   last few days are folded into week 52, so every year has exactly 52 leaves.
-- Seasons use northern-hemisphere months.
+- Seasons use northern-hemisphere months. The code already supports the southern hemisphere (hints
+  follow it too), but there is no setting for it yet.
 
 Because data lives in the browser, clearing site data or using a private window will lose
-it, and it doesn't sync between devices.
+it, and it doesn't sync between devices. Make a backup now and then.
 
 ## Design
 

@@ -31,49 +31,14 @@
     String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const pad = (n) => String(n).padStart(2, '0');
   const leafId = (year, week) => `${year}-${pad(week)}`;
-  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-  /* ---------------------------------------------------------------- weeks
-   * Weeks start on Monday and follow ISO week numbering. A journal year always
-   * has 52 weeks: in the occasional ISO year with a 53rd week, those extra days
-   * are folded into week 52 so every year ends with exactly 52 leaves.
-   */
-  function dayNumber(date) {
-    return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY);
-  }
-  function week1Start(year) {
-    // Monday of the week that contains Jan 4 (ISO week 1), as a UTC day number.
-    const jan4 = new Date(year, 0, 4);
-    return dayNumber(jan4) - ((jan4.getDay() + 6) % 7);
-  }
-  function weekOf(date) {
-    const d = dayNumber(date);
-    let year = date.getFullYear();
-    if (d < week1Start(year)) year -= 1;
-    else if (d >= week1Start(year + 1)) year += 1;
-    const week = Math.min(WEEKS, Math.floor((d - week1Start(year)) / 7) + 1);
-    return { year, week };
-  }
-  function weekRange(year, week) {
-    const start = week1Start(year) + (week - 1) * 7;
-    const end = week === WEEKS ? week1Start(year + 1) - 1 : start + 6;
-    return { start: new Date(start * DAY), end: new Date(end * DAY) };
-  }
-  function formatRange(year, week) {
-    const { start, end } = weekRange(year, week);
-    const sm = MONTHS[start.getUTCMonth()], em = MONTHS[end.getUTCMonth()];
-    if (sm === em) return `${sm} ${start.getUTCDate()}–${end.getUTCDate()}`;
-    return `${sm} ${start.getUTCDate()} – ${em} ${end.getUTCDate()}`;
-  }
-  function season(year, week) {
-    // Northern-hemisphere meteorological seasons, by the middle of the week.
-    const { start } = weekRange(year, week);
-    const m = new Date(start.getTime() + 3 * DAY).getUTCMonth();
-    if (m === 11 || m <= 1) return 'Winter';
-    if (m <= 4) return 'Spring';
-    if (m <= 7) return 'Summer';
-    return 'Autumn';
-  }
+  const { weekOf, weekRange, formatRange } = LeafWeeks;
+  const storage = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage may be blocked */ } },
+  };
+  // The Southern Hemisphere flips the seasons. There is no setting for it yet, so this stays 'north'.
+  const getHemisphere = () => (storage.get('leaf.hemisphere') === 'south' ? 'south' : 'north');
+  const seasonOf = (year, week) => LeafWeeks.season(year, week, getHemisphere());
   const now = () => weekOf(new Date());
   // -1 past, 0 this week, 1 future
   function when(year, week) {
@@ -160,13 +125,13 @@
     try {
       const w = img.naturalWidth, h = img.naturalHeight;
       const scale = Math.min(1, MAX_PHOTO_EDGE / Math.max(w, h));
-      if (scale === 1 && file.size < 1.5e6 && /jpeg|webp/.test(file.type)) return file;
       const canvas = document.createElement('canvas');
       canvas.width = Math.round(w * scale);
       canvas.height = Math.round(h * scale);
       canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
       const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.86));
-      return blob || file;
+      if (!blob) throw new Error("That photo couldn't be prepared. Try a JPEG or PNG.");
+      return blob;
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -174,10 +139,10 @@
 
   /* ---------------------------------------------------------------- chrome */
   const brand = `<a href="#/" class="brand">${icon.leaf(28, 1.6, '#3F5A3C')}<span>52nd Leaf</span></a>`;
-  function header(kind, active) {
+  function header(kind, active, backLabel) {
     const h = $('#header');
     if (kind === 'back') {
-      h.innerHTML = `${brand}<a href="${esc(active)}" class="back-link">${icon.left(18)}Back to journal</a>`;
+      h.innerHTML = `${brand}<a href="${esc(active)}" class="back-link">${icon.left(18)}${esc(backLabel || 'Back to journal')}</a>`;
       return;
     }
     const cur = (name) => (active === name ? ' aria-current="page"' : '');
@@ -188,11 +153,28 @@
         ${kind === 'noadd' ? '' : '<a href="#/add" class="btn-primary btn-sm">Add photo</a>'}
       </nav>`;
   }
+  let footerLeft = '';
+  let installPrompt = null;
   function footer(left) {
-    $('#footer').innerHTML = left
-      ? `<span>${esc(left)}</span><span>© ${new Date().getFullYear()}</span>`
-      : '';
+    if (left !== undefined) footerLeft = left;
+    $('#footer').innerHTML = `<span>${esc(footerLeft)}</span>
+      <nav class="footer-links" aria-label="More">
+        <a href="#/spots">Spots</a>
+        <a href="#/compare">Compare</a>
+        <a href="#/backup">Backup &amp; restore</a>
+        ${installPrompt ? '<button type="button" class="text-btn" id="install">Install app</button>' : ''}
+        <span>© ${new Date().getFullYear()}</span>
+      </nav>`;
+    const btn = $('#install');
+    if (btn) btn.addEventListener('click', async () => {
+      const p = installPrompt;
+      installPrompt = null;
+      footer();
+      if (p) { p.prompt(); try { await p.userChoice; } catch (e) { /* dismissed */ } }
+    });
   }
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; footer(); });
+  window.addEventListener('appinstalled', () => { installPrompt = null; footer(); });
   function setTitle(t) {
     document.title = t ? `52nd Leaf — ${t}` : '52nd Leaf';
   }
@@ -224,6 +206,8 @@
     const saved = yearLeaves.length;
     const left = WEEKS - n.week;
     const recent = leaves.slice(-4).reverse();
+    const lastBackup = Date.parse(storage.get('leaf.lastBackup') || '');
+    const needsBackup = leaves.length >= 3 && !(Date.now() - lastBackup < 30 * DAY);
 
     $('#app').innerHTML = `
       <section class="hero">
@@ -251,6 +235,7 @@
           <strong>${saved} ${saved === 1 ? 'leaf' : 'leaves'} saved</strong>
           <span>${left === 0 ? 'Last week of the year' : `${left} ${left === 1 ? 'week' : 'weeks'} left this year`}</span>
           ${saved ? `<a href="#/review" class="review-link">See your year in review</a>` : ''}
+          ${needsBackup ? `<a href="#/backup" class="review-link">Back up your journal</a>` : ''}
         </div>
         <div class="track" role="progressbar" aria-valuemin="0" aria-valuemax="${WEEKS}" aria-valuenow="${saved}" aria-label="Leaves saved this year">
           <div style="width:${(saved / WEEKS) * 100}%"></div>
@@ -347,6 +332,7 @@
           <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
             <h1 class="display">${year} Journal</h1>
             ${byWeek.size ? `<a href="#/review/${year}" class="btn-ghost btn-sm">Year in review</a>` : ''}
+            ${leaves.length > 1 ? `<a href="#/compare" class="btn-ghost btn-sm">Compare weeks</a>` : ''}
             ${sorted.length > 1 ? `<nav class="year-nav" aria-label="Years">
               <a href="#/journal/${prevYear || ''}" aria-label="Previous year"${prevYear ? '' : ' aria-disabled="true" tabindex="-1"'}>${icon.left(18)}</a>
               <a href="#/journal/${nextYear || ''}" aria-label="Next year"${nextYear ? '' : ' aria-disabled="true" tabindex="-1"'}>${icon.right(18)}</a>
@@ -364,11 +350,14 @@
     footer(`${byWeek.size} of ${WEEKS} weeks saved`);
   }
 
-  /* ---------------------------------------------------------------- add / edit, with the same-spot guide
+  /* ---------------------------------------------------------------- add / edit
    * The photo sits in the same 4:5 frame used everywhere else. Drag, pinch, scroll or use the
-   * arrow keys to frame it; a faded copy of the previous leaf helps line up the same view.
-   * "Use camera with guide" shows that faded copy over a live viewfinder.
+   * arrow keys to frame it; a faded copy of an earlier leaf helps line up the same view. When
+   * you name a spot you have used before, the guide switches to your last photo from that spot.
+   * A photo whose EXIF date falls in another week offers to move to that week.
    */
+  let pendingFile = null; // a photo carried over when you switch to the week it was taken in
+
   async function viewEntry(yearParam, weekParam) {
     const n = now();
     const year = yearParam || n.year;
@@ -389,17 +378,31 @@
     const all = await store.all();
     const id = leafId(year, week);
     const existing = all.find((l) => l.id === id);
-    // The guide is the closest earlier leaf, or failing that the latest other one.
-    const guide = all.filter((l) => l.id < id).pop() || all.filter((l) => l.id !== id).pop() || null;
-    const guideName = guide ? `week ${guide.week}${guide.year !== year ? ` of ${guide.year}` : ''}` : '';
+    const others = all.filter((l) => l.id !== id);
+    const spotNames = LeafCore.spotsFrom(all).map((s) => s.name);
     const isNow = year === n.year && week === n.week;
     const canCamera = !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    const wk = (l) => `week ${l.week}${l.year !== year ? ` of ${l.year}` : ''}`;
+
+    // The guide is the closest earlier leaf from the named spot, else the closest earlier leaf at all.
+    function pickGuide(spotText) {
+      const spot = LeafCore.normalizeSpot(spotText, spotNames);
+      let pool = others, bySpot = false;
+      if (spot && spotNames.includes(spot)) {
+        const inSpot = others.filter((l) => l.spot === spot);
+        if (inSpot.length) { pool = inSpot; bySpot = true; }
+      }
+      const leaf = pool.filter((l) => l.id < id).pop() || pool[0] || null;
+      return { leaf, bySpot };
+    }
+    let { leaf: guide, bySpot } = pickGuide(existing ? existing.spot : '');
 
     header('back', '#/journal/' + year);
     setTitle(existing ? `Edit week ${week}` : isNow ? "Add this week's photo" : `Add week ${week}`);
     footer('');
 
     const heading = existing ? 'Edit this leaf.' : isNow ? 'What did you notice this week?' : 'What did you notice that week?';
+    const hintsOn = !existing && storage.get('leaf.hints') !== 'off';
     $('#app').innerHTML = `
       <section class="split">
         <div class="media">
@@ -413,6 +416,7 @@
             <span class="ghost-tag" id="ghost-tag" hidden></span>
           </div>
           <input id="photo" class="visually-hidden" type="file" accept="image/*" aria-label="Choose a photo">
+          <div class="suggest" id="suggest" role="status" hidden></div>
           <div class="frame-tools" id="tools"></div>
           <p class="frame-hint" id="hint"></p>
         </div>
@@ -421,6 +425,14 @@
             <p class="eyebrow">Week ${week} · ${formatRange(year, week)}${year !== n.year ? `, ${year}` : ''}</p>
             <h1 class="display">${heading}</h1>
           </div>
+          <div class="prompt" id="prompt" hidden>
+            <p><span class="prompt-label">Not sure what to look for?</span> <span id="prompt-text"></span></p>
+            <div class="prompt-actions">
+              <button type="button" class="text-btn" id="prompt-next">Another idea</button>
+              <button type="button" class="text-btn" id="prompt-hide">Hide hints</button>
+            </div>
+          </div>
+          <p class="info" id="info" role="status" hidden></p>
           <div class="field">
             <label for="title">Title <span class="opt">(optional)</span></label>
             <input id="title" type="text" maxlength="80" placeholder="Last leaves on the maple" value="${esc(existing && existing.title)}">
@@ -439,6 +451,12 @@
               <input id="weather" type="text" maxlength="60" placeholder="Cool, overcast" value="${esc(existing && existing.weather)}">
             </div>
           </div>
+          <div class="field">
+            <label for="spot">Spot <span class="opt">(optional)</span></label>
+            <input id="spot" type="text" maxlength="60" list="spot-list" autocomplete="off" placeholder="Maple by the trail" value="${esc(existing && existing.spot)}" aria-describedby="spot-hint">
+            <datalist id="spot-list">${spotNames.map((s) => `<option value="${esc(s)}">`).join('')}</datalist>
+            <span class="field-hint" id="spot-hint">Name a place you'll come back to. The guide then shows your last photo from it.</span>
+          </div>
           <p class="error" id="error" role="alert" hidden></p>
           <div class="actions" style="padding-top:4px">
             <button type="submit" class="btn-primary" id="save">${existing ? 'Save changes' : isNow ? "Save this week's leaf" : `Save week ${week}`}</button>
@@ -449,8 +467,9 @@
 
     const frame = $('#frame'), emptyEl = $('#frame-empty'), shot = $('#shot'), video = $('#viewfinder');
     const ghost = $('#ghost'), ghostTag = $('#ghost-tag'), tools = $('#tools'), hint = $('#hint');
-    const input = $('#photo'), err = $('#error'), form = $('#entry-form');
+    const input = $('#photo'), err = $('#error'), form = $('#entry-form'), suggest = $('#suggest'), info = $('#info');
     const showError = (msg) => { err.textContent = msg; err.hidden = !msg; };
+    const showInfo = (msg) => { info.textContent = msg; info.hidden = !msg; };
 
     let mode = 'empty';            // 'empty' | 'photo' | 'camera'
     let photo = existing ? existing.photo : null;
@@ -460,11 +479,39 @@
     const align = { zoom: 1, x: 0, y: 0 }; // x, y: offset as a fraction of the frame size
     let ghostOn = true, ghostOpacity = 0.4;
     let stream = null;
+    let shownGuideId = null;
 
-    if (guide) {
-      ghost.src = urlFor(guide.photo);
-      ghostTag.textContent = `Faded: ${guideName}`;
+    /* ---- hints: one "what to notice" idea per week, matched to the season */
+    if (hintsOn) {
+      const list = LeafPrompts[seasonOf(year, week)] || [];
+      let shift = 0;
+      const text = $('#prompt-text');
+      const show = () => { text.textContent = list[(LeafWeeks.seasonWeekIndex(year, week) + shift) % list.length]; };
+      if (list.length) {
+        show();
+        $('#prompt').hidden = false;
+        $('#prompt-next').addEventListener('click', () => { shift++; show(); });
+        $('#prompt-hide').addEventListener('click', () => {
+          storage.set('leaf.hints', 'off');
+          $('#prompt').hidden = true;
+          toast('Hints hidden. You can turn them back on under Backup & restore.');
+        });
+      }
     }
+
+    /* ---- guide */
+    function refreshGuide() {
+      const gid = guide ? guide.id : null;
+      if (gid !== shownGuideId) {
+        shownGuideId = gid;
+        if (guide) ghost.src = urlFor(guide.photo);
+      }
+      if (guide) ghostTag.textContent = `Faded: ${wk(guide)}${bySpot ? ', same spot' : ''}`;
+      applyGhost();
+      renderTools();
+      updateHint();
+    }
+    function guideLabel() { return guide ? wk(guide) : ''; }
 
     /* ---- framing math */
     const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -503,7 +550,7 @@
       markAdjusted();
       layout();
     }
-    // Crop the photo to exactly what the frame shows.
+    // Crop the photo to exactly what the frame shows, from the full-size original when we have it.
     async function framedBlob() {
       const W = frame.clientWidth, H = frame.clientHeight;
       const w = shot.naturalWidth, h = shot.naturalHeight, s = coverScale();
@@ -518,7 +565,7 @@
       const sw = (W / s) * k, sh = (H / s) * k;
       const sx = (w / 2 + (-W / 2 - align.x * W) / s) * k;
       const sy = (h / 2 + (-H / 2 - align.y * H) / s) * k;
-      const outW = Math.min(1440, Math.round(sw)), outH = Math.round(outW * 5 / 4);
+      const outW = Math.min(1440, Math.round(sw)), outH = Math.round((outW * 5) / 4);
       const c = document.createElement('canvas');
       c.width = outW; c.height = outH;
       c.getContext('2d').drawImage(src, sx, sy, sw, sh, 0, 0, outW, outH);
@@ -527,6 +574,13 @@
     }
 
     /* ---- modes */
+    function updateHint() {
+      if (mode === 'photo') hint.textContent = guide
+        ? `Drag to line it up with ${guideLabel()}. Pinch or scroll to zoom. It saves as framed.`
+        : 'Drag to frame it. Pinch or scroll to zoom. It saves as framed.';
+      else if (mode === 'camera') hint.textContent = guide ? `Line up the faded ${guideLabel()}, then take the photo.` : 'Frame the view, then take the photo.';
+      else hint.textContent = guide && canCamera ? `Tip: "Use camera with guide" shows ${guideLabel()} faded over your camera so you can match the view.` : '';
+    }
     function setMode(m) {
       mode = m;
       frame.classList.toggle('is-empty', m === 'empty');
@@ -539,11 +593,7 @@
       frame.setAttribute('role', m === 'photo' ? 'group' : 'presentation');
       applyGhost();
       renderTools();
-      if (m === 'photo') hint.textContent = guide
-        ? `Drag to line it up with ${guideName}. Pinch or scroll to zoom. It saves as framed.`
-        : 'Drag to frame it. Pinch or scroll to zoom. It saves as framed.';
-      else if (m === 'camera') hint.textContent = guide ? `Line up the faded ${guideName}, then take the photo.` : 'Frame the view, then take the photo.';
-      else hint.textContent = guide && canCamera ? `Tip: "Use camera with guide" shows ${guideName} faded over your camera so you can match the view.` : '';
+      updateHint();
       layout();
     }
     function applyGhost() {
@@ -564,7 +614,7 @@
       }
       const ghostCtl = guide && mode !== 'empty'
         ? `<div class="ghost-ctl">
-             <label><input type="checkbox" id="ghost-on"${ghostOn ? ' checked' : ''}> Show ${esc(guideName)} faded</label>
+             <label><input type="checkbox" id="ghost-on"${ghostOn ? ' checked' : ''}> Show ${esc(guideLabel())} faded</label>
              <input type="range" id="ghost-op" min="10" max="80" step="5" value="${Math.round(ghostOpacity * 100)}" aria-label="How strong the faded photo is"${ghostOn ? '' : ' disabled'}>
            </div>`
         : '';
@@ -583,12 +633,32 @@
       if (fresh) showError('');
       setMode('photo');
     }
-    async function takeFile(file) {
+
+    /* ---- file the photo in the week it was taken */
+    async function suggestWeek(file) {
+      suggest.hidden = true;
+      if (existing) return;
+      let taken = null;
+      try { taken = LeafExif.readTakenDate(await file.slice(0, 262144).arrayBuffer()); } catch (e) { /* no date */ }
+      if (!taken) return;
+      const target = weekOf(taken);
+      if ((target.year === year && target.week === week) || when(target.year, target.week) > 0) return;
+      const tid = leafId(target.year, target.week);
+      const filled = all.some((l) => l.id === tid);
+      suggest.innerHTML = `<p>This photo was taken on <strong>${LeafWeeks.formatDay(taken)}</strong>, in week ${target.week}${target.year !== year ? ` of ${target.year}` : ''}.${filled ? ' That week already has a photo.' : ''}</p>
+        <div class="tool-row"><button type="button" class="btn-primary btn-sm" id="suggest-go">${filled ? `Replace week ${target.week}` : `Save it to week ${target.week}`}</button>
+        <button type="button" class="text-btn" id="suggest-stay">Keep week ${week}</button></div>`;
+      suggest.hidden = false;
+      $('#suggest-go').addEventListener('click', () => { pendingFile = file; location.hash = `#/add/${target.year}/${target.week}`; });
+      $('#suggest-stay').addEventListener('click', () => { suggest.hidden = true; });
+    }
+    async function takeFile(file, skipSuggest) {
       if (!file) return;
       showError('');
       frame.setAttribute('aria-busy', 'true');
       try {
         await showPhoto(await preparePhoto(file), true, file);
+        if (!skipSuggest) suggestWeek(file);
       } catch (e) {
         showError(e.message);
       } finally {
@@ -665,6 +735,13 @@
       }
       applyGhost();
     });
+    $('#spot').addEventListener('input', (e) => {
+      const next = pickGuide(e.target.value);
+      if ((next.leaf && next.leaf.id) !== (guide && guide.id) || next.bySpot !== bySpot) {
+        ({ leaf: guide, bySpot } = next);
+        refreshGuide();
+      }
+    });
     input.addEventListener('change', () => takeFile(input.files && input.files[0]));
     emptyEl.addEventListener('click', () => input.click());
     emptyEl.addEventListener('keydown', (e) => {
@@ -729,7 +806,14 @@
       onLeave(() => ro.disconnect());
     }
 
+    refreshGuide();
     if (photo) await showPhoto(photo, false); else setMode('empty');
+    if (pendingFile) {
+      const f = pendingFile;
+      pendingFile = null;
+      await takeFile(f, true);
+      if (existing) showInfo(`Week ${week} already has a photo. Saving will replace it.`);
+    }
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -746,6 +830,7 @@
           note: $('#note').value.trim(),
           place: $('#place').value.trim(),
           weather: $('#weather').value.trim(),
+          spot: LeafCore.normalizeSpot($('#spot').value, spotNames),
           createdAt: existing ? existing.createdAt : stamp,
           updatedAt: stamp,
         });
@@ -805,14 +890,16 @@
           <dl class="meta">
             <div><dt>Where</dt><dd>${esc(leaf.place) || '—'}</dd></div>
             <div><dt>Weather</dt><dd>${esc(leaf.weather) || '—'}</dd></div>
-            <div><dt>Season</dt><dd>${season(year, week)}</dd></div>
+            <div><dt>Season</dt><dd>${seasonOf(year, week)}</dd></div>
           </dl>
+          ${leaf.spot ? `<p class="spot-line">Spot: <a href="${spotHref(leaf.spot)}">${esc(leaf.spot)}</a></p>` : ''}
           <nav class="leaf-nav" aria-label="Weeks">
             ${prev ? `<a href="#/leaf/${prev.year}/${prev.week}" class="btn-ghost">${icon.left(16)}Week ${prev.week}${prev.year !== year ? `, ${prev.year}` : ''}</a>` : ''}
             ${nextLink}
           </nav>
           <div class="leaf-tools">
             <a href="#/add/${year}/${week}" class="text-btn">Edit</a>
+            ${leaves.length > 1 ? `<a href="${compareHref(leaf, leaves)}" class="text-btn">Compare</a>` : ''}
             <button type="button" class="text-btn danger" id="delete">Delete</button>
           </div>
         </div>
@@ -1012,7 +1099,7 @@
       ctx.fillText(`Week ${leaf.week}`, 72, H - 150);
       ctx.globalAlpha = 0.85;
       ctx.font = '400 34px Inter, system-ui, sans-serif';
-      ctx.fillText(`${formatRange(leaf.year, leaf.week)} · ${season(leaf.year, leaf.week)}`, 72, H - 100);
+      ctx.fillText(`${formatRange(leaf.year, leaf.week)} · ${seasonOf(leaf.year, leaf.week)}`, 72, H - 100);
       ctx.globalAlpha = 1;
       // 52 ticks: where in the year this photo sits.
       const x0 = 72, x1 = W - 72, step = (x1 - x0) / WEEKS;
@@ -1257,6 +1344,332 @@
     });
   }
 
+  /* ---------------------------------------------------------------- compare any two weeks */
+  const leafLabel = (l, max) => {
+    const t = l.title ? ` · ${l.title}` : '';
+    const s = `Week ${l.week}, ${l.year}${t}`;
+    return max && s.length > max ? s.slice(0, max - 1) + '…' : s;
+  };
+  // Where "Compare" should start for a leaf: its first photo from the same spot (or the year), else the latest.
+  function compareHref(leaf, leaves) {
+    const spotLeaves = leaf.spot ? leaves.filter((l) => l.spot && l.spot.toLowerCase() === leaf.spot.toLowerCase()) : [];
+    const pool = spotLeaves.length > 1 ? spotLeaves : leaves.filter((l) => l.year === leaf.year).length > 1 ? leaves.filter((l) => l.year === leaf.year) : leaves;
+    const first = pool[0], last = pool[pool.length - 1];
+    return first === leaf ? `#/compare/${leaf.id}/${last.id}` : `#/compare/${first.id}/${leaf.id}`;
+  }
+
+  async function viewCompare(idA, idB) {
+    const leaves = await store.all();
+    header('back', '#/journal');
+    setTitle('Compare weeks');
+    footer('');
+    if (leaves.length < 2) {
+      $('#app').innerHTML = `<section class="notice">
+        <p class="eyebrow">Compare weeks</p>
+        <h1 class="display">Add one more photo to compare.</h1>
+        <p class="lede">Comparing needs two leaves. Once you have them, you can slide between any two weeks and see what changed.</p>
+        <a href="#/add" class="btn-primary">Add a photo</a></section>`;
+      return;
+    }
+    const byId = new Map(leaves.map((l) => [l.id, l]));
+    let A = byId.get(idA) || leaves[0];
+    let B = byId.get(idB) || leaves[leaves.length - 1];
+    if (A === B) B = leaves.find((l) => l !== A);
+    let view = storage.get('leaf.compare') === 'side' ? 'side' : 'slide';
+
+    const opts = (sel) => leaves.map((l) => `<option value="${l.id}"${l === sel ? ' selected' : ''}>${esc(leafLabel(l, 56))}</option>`).join('');
+    $('#app').innerHTML = `
+      <section class="compare">
+        <div class="compare-head">
+          <p class="eyebrow">Compare weeks</p>
+          <h1 class="display">See what changed.</h1>
+        </div>
+        <div class="compare-pick">
+          <div class="field"><label for="cmp-a">Before</label><select id="cmp-a">${opts(A)}</select></div>
+          <button type="button" class="btn-ghost btn-sm" id="cmp-swap" aria-label="Swap before and after">Swap</button>
+          <div class="field"><label for="cmp-b">After</label><select id="cmp-b">${opts(B)}</select></div>
+        </div>
+        <div class="seg" role="group" aria-label="How to compare">
+          <button type="button" data-view="slide" aria-pressed="${view === 'slide'}">Slider</button>
+          <button type="button" data-view="side" aria-pressed="${view === 'side'}">Side by side</button>
+        </div>
+        <div id="cmp-stage"></div>
+      </section>`;
+    footer('');
+
+    const stage = $('#cmp-stage'), selA = $('#cmp-a'), selB = $('#cmp-b');
+    const urls = new Map();
+    const src = (l) => { if (!urls.has(l.id)) urls.set(l.id, urlFor(l.photo)); return urls.get(l.id); };
+    const when2 = (l) => `${formatRange(l.year, l.week)}, ${l.year}`;
+    const cap = (l) => `<figcaption><strong>Week ${l.week}</strong> · ${when2(l)}${l.place ? `<br><span>${esc(l.place)}</span>` : ''}${l.note ? `<br><span class="cap-note">${esc(l.note.length > 120 ? l.note.slice(0, 119) + '…' : l.note)}</span>` : ''}</figcaption>`;
+
+    function draw() {
+      if (view === 'slide') {
+        stage.innerHTML = `
+          <div class="slider" id="slider" style="--pos:50%">
+            <img class="s-under" src="${src(B)}" alt="Week ${B.week}, ${B.year}">
+            <img class="s-over" src="${src(A)}" alt="Week ${A.week}, ${A.year}">
+            <span class="s-tag s-tag-a">Week ${A.week} · ${esc(formatRange(A.year, A.week))}</span>
+            <span class="s-tag s-tag-b">Week ${B.week} · ${esc(formatRange(B.year, B.week))}</span>
+            <span class="s-line" aria-hidden="true"><span class="s-knob">${icon.left(14)}${icon.right(14)}</span></span>
+            <input type="range" class="s-range" min="0" max="100" value="50" aria-label="Slide to reveal ${esc(`week ${A.week} and week ${B.week}`)}">
+          </div>
+          <div class="cmp-caps">${cap(A)}${cap(B)}</div>`;
+        const slider = $('#slider');
+        $('.s-range', slider).addEventListener('input', (e) => slider.style.setProperty('--pos', e.target.value + '%'));
+      } else {
+        stage.innerHTML = `
+          <div class="side-by-side">
+            <figure><div class="tile big"><img src="${src(A)}" alt="Week ${A.week}, ${A.year}"></div>${cap(A)}</figure>
+            <figure><div class="tile big"><img src="${src(B)}" alt="Week ${B.week}, ${B.year}"></div>${cap(B)}</figure>
+          </div>`;
+      }
+    }
+    function sync() {
+      selA.value = A.id; selB.value = B.id;
+      history.replaceState(null, '', `#/compare/${A.id}/${B.id}`);
+      draw();
+    }
+    selA.addEventListener('change', () => { A = byId.get(selA.value); sync(); });
+    selB.addEventListener('change', () => { B = byId.get(selB.value); sync(); });
+    $('#cmp-swap').addEventListener('click', () => { [A, B] = [B, A]; sync(); });
+    document.querySelectorAll('.seg button').forEach((btn) => btn.addEventListener('click', () => {
+      view = btn.dataset.view;
+      storage.set('leaf.compare', view);
+      document.querySelectorAll('.seg button').forEach((x) => x.setAttribute('aria-pressed', x === btn));
+      draw();
+    }));
+    sync();
+  }
+
+  /* ---------------------------------------------------------------- spots */
+  const spotHref = (name) => `#/spot/${encodeURIComponent(name)}`;
+
+  async function viewSpots() {
+    const leaves = await store.all();
+    const spots = LeafCore.spotsFrom(leaves);
+    header('main', '');
+    setTitle('Spots');
+    if (!spots.length) {
+      footer('');
+      $('#app').innerHTML = `<section class="notice">
+        <p class="eyebrow">Spots</p>
+        <h1 class="display">Follow one place through the year.</h1>
+        <p class="lede">When you add a photo, name the spot, like “Maple by the trail”. Photos from the same spot are grouped here, and the guide shows your last one so you can line up the same view.</p>
+        <a href="#/add" class="btn-primary">Add a photo</a></section>`;
+      return;
+    }
+    $('#app').innerHTML = `
+      <section class="review-head">
+        <p class="eyebrow">Spots</p>
+        <h1 class="display">Places you come back to</h1>
+        <p class="lede">${spots.length} ${spots.length === 1 ? 'spot' : 'spots'}. Open one to see it change through the year.</p>
+      </section>
+      <section class="spot-grid" aria-label="Spots">
+        ${spots.map((s) => {
+          const latest = s.leaves[s.leaves.length - 1];
+          return `<a href="${spotHref(s.name)}" class="spot-card">
+            <div class="tile"><img src="${urlFor(latest.photo)}" alt="" loading="lazy"></div>
+            <h2>${esc(s.name)}</h2>
+            <span>${s.leaves.length} ${s.leaves.length === 1 ? 'photo' : 'photos'} · latest week ${latest.week}${latest.year !== now().year ? `, ${latest.year}` : ''}</span>
+          </a>`;
+        }).join('')}
+      </section>`;
+    footer('');
+  }
+
+  async function viewSpot(name) {
+    const leaves = await store.all();
+    const spot = LeafCore.spotsFrom(leaves).find((s) => s.name.toLowerCase() === String(name).toLowerCase());
+    if (!spot) return viewNotFound("That spot doesn't have any photos.", '#/spots');
+    header('back', '#/spots', 'All spots');
+    setTitle(spot.name);
+    const first = spot.leaves[0], last = spot.leaves[spot.leaves.length - 1];
+    const day = (l) => `${formatRange(l.year, l.week)}, ${l.year}`;
+    $('#app').innerHTML = `
+      <section class="review-head">
+        <p class="eyebrow">Spot</p>
+        <h1 class="display" id="spot-title">${esc(spot.name)}</h1>
+        <p class="lede">${spot.leaves.length} ${spot.leaves.length === 1 ? 'photo' : 'photos'}${spot.leaves.length > 1 ? `, from ${esc(day(first))} to ${esc(day(last))}` : `, ${esc(day(first))}`}.</p>
+        <div class="actions" style="padding-top:4px">
+          ${spot.leaves.length > 1 ? `<a class="btn-primary btn-sm" href="#/compare/${first.id}/${last.id}">Compare first and latest</a>` : ''}
+          <button type="button" class="btn-ghost btn-sm" id="rename">Rename spot</button>
+        </div>
+        <form class="rename" id="rename-form" hidden>
+          <label for="rename-input" class="visually-hidden">New name for this spot</label>
+          <input id="rename-input" type="text" maxlength="60" value="${esc(spot.name)}">
+          <button type="submit" class="btn-primary btn-sm">Save name</button>
+          <button type="button" class="text-btn" id="rename-cancel">Cancel</button>
+        </form>
+      </section>
+      <section class="spot-strip" aria-label="Photos from ${esc(spot.name)}">
+        ${spot.leaves.map((l) => `<a href="#/leaf/${l.year}/${l.week}" class="spot-leaf">
+            <div class="tile"><img src="${urlFor(l.photo)}" alt="" loading="lazy"></div>
+            <strong>Week ${l.week}${l.year !== now().year ? `, ${l.year}` : ''}</strong>
+            <span>${esc(formatRange(l.year, l.week))}</span>
+          </a>`).join('')}
+      </section>`;
+    footer('');
+
+    const form = $('#rename-form'), field = $('#rename-input');
+    $('#rename').addEventListener('click', () => { form.hidden = false; field.focus(); field.select(); });
+    $('#rename-cancel').addEventListener('click', () => { form.hidden = true; $('#rename').focus(); });
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const others = LeafCore.spotsFrom(leaves).map((s) => s.name).filter((n) => n.toLowerCase() !== spot.name.toLowerCase());
+      const next = LeafCore.normalizeSpot(field.value, others);
+      if (!next || next === spot.name) { form.hidden = true; return; }
+      if (others.includes(next) && !confirm(`You already have a spot called “${next}”. Merge these photos into it?`)) return;
+      for (const l of spot.leaves) await store.put({ ...l, spot: next, updatedAt: new Date().toISOString() });
+      toast('Spot renamed');
+      location.hash = spotHref(next);
+    });
+  }
+
+  /* ---------------------------------------------------------------- backup & restore */
+  function blobToDataURL(blob) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(/^data:image\//.test(r.result) ? r.result : String(r.result).replace(/^data:[^;]*;/, 'data:image/jpeg;'));
+      r.onerror = () => reject(r.error);
+      r.readAsDataURL(blob);
+    });
+  }
+  async function dataUrlToBlob(url) {
+    return await (await fetch(url)).blob();
+  }
+  // Photos from other tools can carry EXIF (including GPS). Re-encode those so a backup never does.
+  async function withoutMetadata(blob) {
+    try {
+      if (!LeafExif.hasExif(await blob.slice(0, 262144).arrayBuffer())) return blob;
+      const bmp = 'createImageBitmap' in window ? await createImageBitmap(blob) : (await loadImage(blob)).img;
+      const c = document.createElement('canvas');
+      c.width = bmp.width || bmp.naturalWidth;
+      c.height = bmp.height || bmp.naturalHeight;
+      c.getContext('2d').drawImage(bmp, 0, 0);
+      return (await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.92))) || blob;
+    } catch (e) {
+      return blob;
+    }
+  }
+  async function packBackup(leaves, onProgress) {
+    const parts = [`{"app":"52nd-leaf","version":1,"exportedAt":${JSON.stringify(new Date().toISOString())},"leaves":[`];
+    for (let i = 0; i < leaves.length; i++) {
+      onProgress && onProgress(i + 1, leaves.length);
+      const { photo, ...fields } = leaves[i];
+      parts.push((i ? ',' : '') + JSON.stringify({ ...fields, photo: await blobToDataURL(await withoutMetadata(photo)) }));
+    }
+    parts.push(']}');
+    return new Blob(parts, { type: 'application/json' });
+  }
+  const mb = (bytes) => (bytes / 1e6 < 10 ? (bytes / 1e6).toFixed(1) : Math.round(bytes / 1e6)) + ' MB';
+  const longDate = (d) => `${LeafWeeks.formatDay(d)}, ${d.getFullYear()}`;
+
+  async function viewBackup() {
+    const leaves = await store.all();
+    header('main', '');
+    setTitle('Backup & restore');
+    const total = leaves.reduce((s, l) => s + (l.photo ? l.photo.size : 0), 0);
+    const last = storage.get('leaf.lastBackup');
+    const lastDate = last && !isNaN(new Date(last)) ? new Date(last) : null;
+
+    $('#app').innerHTML = `
+      <section class="review-head">
+        <p class="eyebrow">Your data</p>
+        <h1 class="display">Backup &amp; restore</h1>
+        <p class="lede">Your photos and notes live only in this browser, on this device. Download a backup now and then, and you can bring the whole journal back if the browser is cleared or you get a new phone.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="bk-h">
+        <h2 class="h2" id="bk-h">Save a backup</h2>
+        <p>${leaves.length ? `${leaves.length} ${leaves.length === 1 ? 'leaf' : 'leaves'}, about ${mb(total)}.` : 'Nothing to back up yet.'} Location data is removed from photos in the file.</p>
+        <p class="review-note">${lastDate ? `Last backup: ${esc(longDate(lastDate))}.` : leaves.length ? "You haven't made a backup yet." : ''}</p>
+        <div class="actions" style="padding-top:0">
+          <button type="button" class="btn-primary btn-sm" id="bk-go"${leaves.length ? '' : ' disabled'}>Download backup</button>
+        </div>
+        <p class="review-note" id="bk-status" role="status"></p>
+      </section>
+
+      <section class="panel" aria-labelledby="rs-h">
+        <h2 class="h2" id="rs-h">Restore from a backup</h2>
+        <p>Choose a backup file. Weeks you already have are kept unless you say otherwise.</p>
+        <div class="actions" style="padding-top:0">
+          <input id="rs-file" class="visually-hidden" type="file" accept=".json,application/json">
+          <label for="rs-file" class="btn-ghost btn-sm" id="rs-label" tabindex="0">Choose backup file</label>
+        </div>
+        <div class="restore-plan" id="rs-plan" hidden></div>
+        <p class="error" id="rs-error" role="alert" hidden></p>
+      </section>
+
+      <section class="panel" aria-labelledby="st-h">
+        <h2 class="h2" id="st-h">Hints</h2>
+        <label class="check"><input type="checkbox" id="st-hints"${storage.get('leaf.hints') === 'off' ? '' : ' checked'}> Show a “what to notice” idea when I add a photo</label>
+      </section>`;
+    footer('');
+
+    $('#st-hints').addEventListener('change', (e) => storage.set('leaf.hints', e.target.checked ? 'on' : 'off'));
+    $('#rs-label').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#rs-file').click(); } });
+
+    const go = $('#bk-go'), status = $('#bk-status');
+    go.addEventListener('click', async () => {
+      go.disabled = true;
+      try {
+        const blob = await packBackup(leaves, (i, n) => { status.textContent = `Packing leaf ${i} of ${n}…`; });
+        const d = new Date();
+        await saveFile(blob, `52nd-leaf-backup-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.json`);
+        storage.set('leaf.lastBackup', d.toISOString());
+        status.textContent = `Backup made (${mb(blob.size)}). Keep it somewhere safe, like your cloud storage.`;
+      } catch (e) {
+        status.textContent = "The backup couldn't be made. Try again, or try another browser.";
+      } finally {
+        go.disabled = false;
+      }
+    });
+
+    const planBox = $('#rs-plan'), rsErr = $('#rs-error');
+    const fail = (msg) => { rsErr.textContent = msg; rsErr.hidden = !msg; if (msg) planBox.hidden = true; };
+    $('#rs-file').addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      fail('');
+      let parsed;
+      try { parsed = JSON.parse(await file.text()); } catch (ex) { return fail("That file couldn't be read as a backup."); }
+      const v = LeafCore.validateBackup(parsed);
+      if (v.error) return fail(v.error);
+      if (!v.leaves.length) return fail('That backup has no leaves in it.');
+      const have = await store.all();
+      const plan = LeafCore.planRestore(have.map((l) => l.id), v.leaves, false);
+      const from = v.leaves[0], to = v.leaves[v.leaves.length - 1];
+      planBox.hidden = false;
+      planBox.innerHTML = `
+        <p><strong>${v.leaves.length} ${v.leaves.length === 1 ? 'leaf' : 'leaves'}</strong> found, from week ${from.week}, ${from.year} to week ${to.week}, ${to.year}.
+        ${plan.add.length} ${plan.add.length === 1 ? 'is' : 'are'} new${plan.clash.length ? `, ${plan.clash.length} ${plan.clash.length === 1 ? 'is a week' : 'are weeks'} you already have` : ''}.${v.skipped ? ` ${v.skipped} couldn't be read and will be skipped.` : ''}</p>
+        ${plan.clash.length ? `<label class="check"><input type="checkbox" id="rs-replace"> Replace the ${plan.clash.length} ${plan.clash.length === 1 ? 'week' : 'weeks'} I already have</label>` : ''}
+        <div class="actions" style="padding-top:0">
+          <button type="button" class="btn-primary btn-sm" id="rs-go">Restore</button>
+          <button type="button" class="text-btn" id="rs-cancel">Cancel</button>
+        </div>`;
+      $('#rs-cancel').addEventListener('click', () => { planBox.hidden = true; });
+      $('#rs-go').addEventListener('click', async () => {
+        const replace = !!($('#rs-replace') && $('#rs-replace').checked);
+        const run = LeafCore.planRestore(have.map((l) => l.id), v.leaves, replace);
+        $('#rs-go').disabled = true;
+        try {
+          for (const l of run.write) {
+            const { photo, ...fields } = l;
+            await store.put({ ...fields, photo: await dataUrlToBlob(photo) });
+          }
+          toast(`Restored ${run.write.length} ${run.write.length === 1 ? 'leaf' : 'leaves'}`);
+          location.hash = '#/journal';
+        } catch (ex) {
+          $('#rs-go').disabled = false;
+          fail(ex.message || "The restore didn't finish. Some leaves may have been added.");
+        }
+      });
+    });
+  }
+
   function viewNotFound(msg, addHref) {
     header('main', '');
     setTitle('Not found');
@@ -1295,6 +1708,10 @@
         case 'journal': await viewJournal(num(parts[1])); break;
         case 'add': await viewEntry(num(parts[1]), num(parts[2])); break;
         case 'review': await viewReview(num(parts[1])); break;
+        case 'compare': await viewCompare(parts[1], parts[2]); break;
+        case 'spots': await viewSpots(); break;
+        case 'spot': await viewSpot(decodeURIComponent(parts[1] || '')); break;
+        case 'backup': await viewBackup(); break;
         case 'leaf': {
           const y = num(parts[1]), w = num(parts[2]);
           if (y && w) await viewLeaf(y, w); else viewNotFound();
@@ -1316,6 +1733,9 @@
   window.addEventListener('hashchange', route);
   route();
 
-  // Expose the week math for tests in the console.
-  window.LeafWeeks = { weekOf, weekRange, formatRange, season };
+  // Work offline: the service worker keeps a copy of the app on this device.
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => { /* the app still works online */ }));
+  }
+
 })();

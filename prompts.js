@@ -1,0 +1,73 @@
+/* "What to notice" hints, 14 per season. Keyed by season, so they follow the hemisphere setting. */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.LeafPrompts = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+  return {
+    Spring: [
+      'Look for the first buds on a tree you pass often.',
+      'Find a patch of ground where something green is just breaking through.',
+      'Listen for a bird you did not hear last month, then try to find it.',
+      'Look at fresh leaves in low sun. They glow before they toughen up.',
+      'Find a flower that opened this week. Notice what visits it.',
+      'Look for puddles, mud or running water and what is growing beside them.',
+      'Photograph a branch that is halfway between bare and green.',
+      'Find the newest leaf you can see and the oldest thing near it.',
+      'Look for moss, lichen or fern, which look their best when the ground is wet.',
+      'Notice a nest, a feather or any sign of a bird building a home.',
+      'Look for blossom petals on the ground, not just on the tree.',
+      'Find a weed growing somewhere it should not. Give it a portrait.',
+      'Notice how far the light now reaches into the place you usually walk.',
+      'Look up. Treetops often change first.',
+    ],
+    Summer: [
+      'Find the deepest shade nearby and what grows in it.',
+      'Look at a leaf up close. Veins, insect bites, dust, dew.',
+      'Notice what is in flower right now and who is visiting.',
+      'Find something that has gone to seed already.',
+      'Look at the sky. What are the clouds doing today?',
+      'Find the place where grass has turned from green to gold.',
+      'Photograph a tree from underneath, looking up through the leaves.',
+      'Look for fruit, berries or nuts that are still unripe.',
+      'Find water, even a small puddle, and notice the reflections.',
+      'Notice insects: a bee, a beetle, a web with dew on it.',
+      'Look at how a plant has bent toward the light.',
+      'Find the longest shadow you can at the end of the day.',
+      'Notice smells: cut grass, warm earth, something in flower.',
+      'Look for the first leaf that has started to turn.',
+    ],
+    Autumn: [
+      'Find the very first leaf that has changed color.',
+      'Look for a tree that has turned while its neighbor has not.',
+      'Photograph a fallen leaf on something that is not grass.',
+      'Notice seeds, acorns, conkers or pods on the ground.',
+      'Look at the light. It is lower and warmer than a month ago.',
+      'Find fruit or berries that birds and animals are eating.',
+      'Look for fungi on the ground, on a log or on a trunk.',
+      'Notice how much of the canopy is left. Is the sky showing through?',
+      'Find a spider web catching morning dew or mist.',
+      'Look at a bare branch and the buds it is already making for next year.',
+      'Find the last leaf hanging on a tree.',
+      'Notice the color of the ground when it is covered in leaves.',
+      'Look for animals getting ready: nuts stored, nests empty.',
+      'Photograph your breath, the mist or the frost, if there is any.',
+    ],
+    Winter: [
+      'Look at the bare shape of a tree you know well in leaf.',
+      'Find frost, ice or snow on something small, like a leaf or a seed head.',
+      'Look for evergreens and notice how much green is still out there.',
+      'Find tracks in mud or snow and follow them for a few steps.',
+      'Notice a seed head or dried flower that is still standing.',
+      'Look for buds. They are already there, waiting.',
+      'Find a nest that is now visible because the leaves are gone.',
+      'Photograph the low winter sun through bare branches.',
+      'Look at bark up close: lichen, moss, cracks, insects.',
+      'Notice which birds stay and which have gone.',
+      'Find something green growing in the cold.',
+      'Look at how the same view looks different without leaves.',
+      'Find a puddle that is frozen or a stream that is moving.',
+      'Notice the first sign that the days are getting longer.',
+    ],
+  };
+});
