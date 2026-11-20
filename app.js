@@ -133,6 +133,12 @@
     liveUrls.forEach((u) => URL.revokeObjectURL(u));
     liveUrls = [];
   }
+  // Things a view must undo when you leave it (camera streams, animations, observers).
+  let cleanups = [];
+  const onLeave = (fn) => cleanups.push(fn);
+  function runCleanups() {
+    cleanups.splice(0).forEach((fn) => { try { fn(); } catch (e) { console.error(e); } });
+  }
 
   /* ---------------------------------------------------------------- photo processing */
   function loadImage(file) {
@@ -244,6 +250,7 @@
         <div class="progress-count">
           <strong>${saved} ${saved === 1 ? 'leaf' : 'leaves'} saved</strong>
           <span>${left === 0 ? 'Last week of the year' : `${left} ${left === 1 ? 'week' : 'weeks'} left this year`}</span>
+          ${saved ? `<a href="#/review" class="review-link">See your year in review</a>` : ''}
         </div>
         <div class="track" role="progressbar" aria-valuemin="0" aria-valuemax="${WEEKS}" aria-valuenow="${saved}" aria-label="Leaves saved this year">
           <div style="width:${(saved / WEEKS) * 100}%"></div>
@@ -339,6 +346,7 @@
           <p class="eyebrow">Your year in nature</p>
           <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
             <h1 class="display">${year} Journal</h1>
+            ${byWeek.size ? `<a href="#/review/${year}" class="btn-ghost btn-sm">Year in review</a>` : ''}
             ${sorted.length > 1 ? `<nav class="year-nav" aria-label="Years">
               <a href="#/journal/${prevYear || ''}" aria-label="Previous year"${prevYear ? '' : ' aria-disabled="true" tabindex="-1"'}>${icon.left(18)}</a>
               <a href="#/journal/${nextYear || ''}" aria-label="Next year"${nextYear ? '' : ' aria-disabled="true" tabindex="-1"'}>${icon.right(18)}</a>
@@ -356,6 +364,11 @@
     footer(`${byWeek.size} of ${WEEKS} weeks saved`);
   }
 
+  /* ---------------------------------------------------------------- add / edit, with the same-spot guide
+   * The photo sits in the same 4:5 frame used everywhere else. Drag, pinch, scroll or use the
+   * arrow keys to frame it; a faded copy of the previous leaf helps line up the same view.
+   * "Use camera with guide" shows that faded copy over a live viewfinder.
+   */
   async function viewEntry(yearParam, weekParam) {
     const n = now();
     const year = yearParam || n.year;
@@ -373,22 +386,35 @@
       return;
     }
 
-    const existing = await store.get(year, week);
+    const all = await store.all();
+    const id = leafId(year, week);
+    const existing = all.find((l) => l.id === id);
+    // The guide is the closest earlier leaf, or failing that the latest other one.
+    const guide = all.filter((l) => l.id < id).pop() || all.filter((l) => l.id !== id).pop() || null;
+    const guideName = guide ? `week ${guide.week}${guide.year !== year ? ` of ${guide.year}` : ''}` : '';
     const isNow = year === n.year && week === n.week;
+    const canCamera = !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+
     header('back', '#/journal/' + year);
     setTitle(existing ? `Edit week ${week}` : isNow ? "Add this week's photo" : `Add week ${week}`);
     footer('');
 
-    let photo = existing ? existing.photo : null;
     const heading = existing ? 'Edit this leaf.' : isNow ? 'What did you notice this week?' : 'What did you notice that week?';
-
     $('#app').innerHTML = `
       <section class="split">
         <div class="media">
-          <label for="photo" class="drop" id="drop">
-            <span class="drop-empty">${icon.camera}<span class="big">Add your photo</span><span class="small">Drag it here or tap to choose</span></span>
-          </label>
-          <input id="photo" class="visually-hidden" type="file" accept="image/*">
+          <div class="frame is-empty" id="frame" aria-label="Photo framing. Drag or use the arrow keys to move, plus and minus to zoom.">
+            <div class="frame-empty" id="frame-empty" role="button" tabindex="0">
+              ${icon.camera}<span class="big">Add your photo</span><span class="small">Drag it here or tap to choose</span>
+            </div>
+            <img id="shot" class="shot" alt="Your photo for week ${week}" draggable="false" hidden>
+            <video id="viewfinder" class="viewfinder" playsinline muted hidden></video>
+            <img id="ghost" class="ghost" alt="" hidden>
+            <span class="ghost-tag" id="ghost-tag" hidden></span>
+          </div>
+          <input id="photo" class="visually-hidden" type="file" accept="image/*" aria-label="Choose a photo">
+          <div class="frame-tools" id="tools"></div>
+          <p class="frame-hint" id="hint"></p>
         </div>
         <form class="side" id="entry-form" novalidate>
           <div style="display:flex;flex-direction:column;gap:10px">
@@ -421,58 +447,301 @@
         </form>
       </section>`;
 
-    const drop = $('#drop'), input = $('#photo'), err = $('#error'), form = $('#entry-form');
+    const frame = $('#frame'), emptyEl = $('#frame-empty'), shot = $('#shot'), video = $('#viewfinder');
+    const ghost = $('#ghost'), ghostTag = $('#ghost-tag'), tools = $('#tools'), hint = $('#hint');
+    const input = $('#photo'), err = $('#error'), form = $('#entry-form');
     const showError = (msg) => { err.textContent = msg; err.hidden = !msg; };
-    const emptyMarkup = drop.innerHTML;
-    let previewUrl = null;
 
-    function renderPhoto() {
-      if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
-      if (!photo) {
-        drop.classList.remove('has-photo');
-        drop.innerHTML = emptyMarkup;
-        return;
+    let mode = 'empty';            // 'empty' | 'photo' | 'camera'
+    let photo = existing ? existing.photo : null;
+    let original = null;           // the full-size file, so framing crops from every pixel available
+    let photoReady = false;        // shot has decoded the current photo
+    let adjusted = false;          // user moved or zoomed the photo
+    const align = { zoom: 1, x: 0, y: 0 }; // x, y: offset as a fraction of the frame size
+    let ghostOn = true, ghostOpacity = 0.4;
+    let stream = null;
+
+    if (guide) {
+      ghost.src = urlFor(guide.photo);
+      ghostTag.textContent = `Faded: ${guideName}`;
+    }
+
+    /* ---- framing math */
+    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+    function coverScale() {
+      return Math.max(frame.clientWidth / shot.naturalWidth, frame.clientHeight / shot.naturalHeight) * align.zoom;
+    }
+    function layout() {
+      if (!photoReady) return;
+      const W = frame.clientWidth, H = frame.clientHeight;
+      const w = shot.naturalWidth, h = shot.naturalHeight, s = coverScale();
+      const mx = Math.max(0, (w * s - W) / 2) / W, my = Math.max(0, (h * s - H) / 2) / H;
+      align.x = clamp(align.x, -mx, mx);
+      align.y = clamp(align.y, -my, my);
+      shot.style.width = w * s + 'px';
+      shot.style.height = h * s + 'px';
+      shot.style.transform = `translate(-50%, -50%) translate(${align.x * W}px, ${align.y * H}px)`;
+    }
+    function markAdjusted() {
+      if (!adjusted) { adjusted = true; renderTools(); }
+    }
+    function panBy(dx, dy) {
+      align.x += dx / frame.clientWidth;
+      align.y += dy / frame.clientHeight;
+      markAdjusted();
+      layout();
+    }
+    // Zoom by factor f around a point given in px from the frame's centre.
+    function zoomAt(f, px, py) {
+      const nz = clamp(align.zoom * f, 1, 4);
+      f = nz / align.zoom;
+      if (f === 1) return;
+      const W = frame.clientWidth, H = frame.clientHeight;
+      align.x = (px - (px - align.x * W) * f) / W;
+      align.y = (py - (py - align.y * H) * f) / H;
+      align.zoom = nz;
+      markAdjusted();
+      layout();
+    }
+    // Crop the photo to exactly what the frame shows.
+    async function framedBlob() {
+      const W = frame.clientWidth, H = frame.clientHeight;
+      const w = shot.naturalWidth, h = shot.naturalHeight, s = coverScale();
+      let src = shot, k = 1, url = null;
+      if (original) {
+        try {
+          const loaded = await loadImage(original);
+          src = loaded.img; url = loaded.url;
+          k = src.naturalWidth / w;
+        } catch (e) { /* the original can't be decoded here (e.g. HEIC); use the resized copy */ }
       }
-      previewUrl = URL.createObjectURL(photo);
-      liveUrls.push(previewUrl);
-      drop.classList.add('has-photo');
-      drop.innerHTML = `<img src="${previewUrl}" alt="Your photo for week ${week}"><span class="change">Change photo</span>`;
+      const sw = (W / s) * k, sh = (H / s) * k;
+      const sx = (w / 2 + (-W / 2 - align.x * W) / s) * k;
+      const sy = (h / 2 + (-H / 2 - align.y * H) / s) * k;
+      const outW = Math.min(1440, Math.round(sw)), outH = Math.round(outW * 5 / 4);
+      const c = document.createElement('canvas');
+      c.width = outW; c.height = outH;
+      c.getContext('2d').drawImage(src, sx, sy, sw, sh, 0, 0, outW, outH);
+      if (url) URL.revokeObjectURL(url);
+      return await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9));
+    }
+
+    /* ---- modes */
+    function setMode(m) {
+      mode = m;
+      frame.classList.toggle('is-empty', m === 'empty');
+      frame.classList.toggle('is-photo', m === 'photo');
+      frame.classList.toggle('is-camera', m === 'camera');
+      emptyEl.hidden = m !== 'empty';
+      shot.hidden = m !== 'photo';
+      video.hidden = m !== 'camera';
+      if (m === 'photo') frame.setAttribute('tabindex', '0'); else frame.removeAttribute('tabindex');
+      frame.setAttribute('role', m === 'photo' ? 'group' : 'presentation');
+      applyGhost();
+      renderTools();
+      if (m === 'photo') hint.textContent = guide
+        ? `Drag to line it up with ${guideName}. Pinch or scroll to zoom. It saves as framed.`
+        : 'Drag to frame it. Pinch or scroll to zoom. It saves as framed.';
+      else if (m === 'camera') hint.textContent = guide ? `Line up the faded ${guideName}, then take the photo.` : 'Frame the view, then take the photo.';
+      else hint.textContent = guide && canCamera ? `Tip: "Use camera with guide" shows ${guideName} faded over your camera so you can match the view.` : '';
+      layout();
+    }
+    function applyGhost() {
+      const show = !!guide && ghostOn && mode !== 'empty';
+      ghost.hidden = !show;
+      ghostTag.hidden = !show;
+      ghost.style.opacity = ghostOpacity;
+    }
+    function renderTools() {
+      const b = [];
+      if (mode === 'camera') {
+        b.push('<button type="button" class="btn-primary btn-sm" data-act="shoot">Take photo</button>');
+        b.push('<button type="button" class="btn-ghost btn-sm" data-act="cancel-cam">Cancel</button>');
+      } else {
+        b.push(`<button type="button" class="btn-ghost btn-sm" data-act="choose">${photo ? 'Change photo' : 'Choose photo'}</button>`);
+        if (canCamera) b.push(`<button type="button" class="btn-ghost btn-sm" data-act="camera">${guide ? 'Use camera with guide' : 'Use camera'}</button>`);
+        if (mode === 'photo' && adjusted) b.push('<button type="button" class="text-btn" data-act="reset">Reset framing</button>');
+      }
+      const ghostCtl = guide && mode !== 'empty'
+        ? `<div class="ghost-ctl">
+             <label><input type="checkbox" id="ghost-on"${ghostOn ? ' checked' : ''}> Show ${esc(guideName)} faded</label>
+             <input type="range" id="ghost-op" min="10" max="80" step="5" value="${Math.round(ghostOpacity * 100)}" aria-label="How strong the faded photo is"${ghostOn ? '' : ' disabled'}>
+           </div>`
+        : '';
+      tools.innerHTML = `<div class="tool-row">${b.join('')}</div>${ghostCtl}`;
+    }
+
+    async function showPhoto(blob, fresh, orig) {
+      photo = blob;
+      original = orig || null;
+      photoReady = false;
+      adjusted = false;
+      Object.assign(align, { zoom: 1, x: 0, y: 0 });
+      shot.src = urlFor(blob);
+      try { await shot.decode(); } catch (e) { /* decode() can reject for valid images in some browsers */ }
+      photoReady = shot.naturalWidth > 0;
+      if (fresh) showError('');
+      setMode('photo');
     }
     async function takeFile(file) {
       if (!file) return;
       showError('');
-      drop.setAttribute('aria-busy', 'true');
+      frame.setAttribute('aria-busy', 'true');
       try {
-        photo = await preparePhoto(file);
-        renderPhoto();
+        await showPhoto(await preparePhoto(file), true, file);
       } catch (e) {
         showError(e.message);
       } finally {
-        drop.removeAttribute('aria-busy');
+        frame.removeAttribute('aria-busy');
+        input.value = '';
       }
     }
-    renderPhoto();
 
-    input.addEventListener('change', () => takeFile(input.files && input.files[0]));
-    ['dragenter', 'dragover'].forEach((ev) =>
-      drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('is-over'); })
-    );
-    ['dragleave', 'dragend'].forEach((ev) => drop.addEventListener(ev, () => drop.classList.remove('is-over')));
-    drop.addEventListener('drop', (e) => {
-      e.preventDefault();
-      drop.classList.remove('is-over');
-      takeFile(e.dataTransfer.files && e.dataTransfer.files[0]);
+    /* ---- camera */
+    function stopCamera() {
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      stream = null;
+      video.srcObject = null;
+    }
+    onLeave(stopCamera);
+    async function startCamera() {
+      showError('');
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1920 } },
+          audio: false,
+        });
+      } catch (e) {
+        showError(e && e.name === 'NotAllowedError'
+          ? 'Camera access is blocked. Allow it in your browser settings, or choose a photo instead.'
+          : "The camera couldn't be opened. Choose a photo instead.");
+        return;
+      }
+      video.srcObject = stream;
+      setMode('camera');
+      try { await video.play(); } catch (e) { /* autoplay of a muted inline video is allowed; ignore */ }
+    }
+    async function capture() {
+      const vw = video.videoWidth, vh = video.videoHeight;
+      if (!vw || !vh) { showError('The camera is still starting. Try again in a moment.'); return; }
+      // Same crop the viewfinder shows: the centre of the video at the frame's 4:5 shape.
+      const aspect = 4 / 5;
+      let sw = vw, sh = vh;
+      if (vw / vh > aspect) sw = vh * aspect; else sh = vw / aspect;
+      const c = document.createElement('canvas');
+      c.width = Math.min(1440, Math.round(sw));
+      c.height = Math.round(c.width / aspect);
+      c.getContext('2d').drawImage(video, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, c.width, c.height);
+      const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9));
+      stopCamera();
+      if (blob) await showPhoto(blob, true);
+    }
+
+    /* ---- events */
+    tools.addEventListener('click', (e) => {
+      const act = e.target.closest('[data-act]');
+      if (!act) return;
+      switch (act.dataset.act) {
+        case 'choose': input.click(); break;
+        case 'camera': startCamera(); break;
+        case 'shoot': capture(); break;
+        case 'cancel-cam': stopCamera(); setMode(photo ? 'photo' : 'empty'); break;
+        case 'reset':
+          Object.assign(align, { zoom: 1, x: 0, y: 0 });
+          adjusted = false;
+          layout();
+          renderTools();
+          frame.focus();
+          break;
+      }
     });
+    tools.addEventListener('input', (e) => {
+      if (e.target.id === 'ghost-on') {
+        ghostOn = e.target.checked;
+        const op = $('#ghost-op');
+        if (op) op.disabled = !ghostOn;
+      } else if (e.target.id === 'ghost-op') {
+        ghostOpacity = e.target.value / 100;
+      }
+      applyGhost();
+    });
+    input.addEventListener('change', () => takeFile(input.files && input.files[0]));
+    emptyEl.addEventListener('click', () => input.click());
+    emptyEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+    });
+    ['dragenter', 'dragover'].forEach((ev) =>
+      frame.addEventListener(ev, (e) => { if (mode !== 'camera') { e.preventDefault(); frame.classList.add('is-over'); } })
+    );
+    ['dragleave', 'dragend'].forEach((ev) => frame.addEventListener(ev, () => frame.classList.remove('is-over')));
+    frame.addEventListener('drop', (e) => {
+      e.preventDefault();
+      frame.classList.remove('is-over');
+      if (mode !== 'camera') takeFile(e.dataTransfer.files && e.dataTransfer.files[0]);
+    });
+
+    // Drag to pan, two fingers to pinch-zoom.
+    const pointers = new Map();
+    const centre = () => { const r = frame.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
+    frame.addEventListener('pointerdown', (e) => {
+      if (mode !== 'photo' || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      frame.setPointerCapture(e.pointerId);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    });
+    frame.addEventListener('pointermove', (e) => {
+      if (!pointers.has(e.pointerId)) return;
+      const before = [...pointers.values()];
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const after = [...pointers.values()];
+      if (after.length === 1) {
+        panBy(after[0].x - before[0].x, after[0].y - before[0].y);
+      } else if (after.length >= 2) {
+        const [a0, b0] = before, [a1, b1] = after;
+        const d0 = Math.hypot(a0.x - b0.x, a0.y - b0.y), d1 = Math.hypot(a1.x - b1.x, a1.y - b1.y);
+        const m0 = { x: (a0.x + b0.x) / 2, y: (a0.y + b0.y) / 2 }, m1 = { x: (a1.x + b1.x) / 2, y: (a1.y + b1.y) / 2 };
+        panBy(m1.x - m0.x, m1.y - m0.y);
+        const c = centre();
+        if (d0 > 0) zoomAt(d1 / d0, m1.x - c.x, m1.y - c.y);
+      }
+    });
+    const lift = (e) => pointers.delete(e.pointerId);
+    frame.addEventListener('pointerup', lift);
+    frame.addEventListener('pointercancel', lift);
+    frame.addEventListener('wheel', (e) => {
+      if (mode !== 'photo') return;
+      e.preventDefault();
+      const c = centre();
+      zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - c.x, e.clientY - c.y);
+    }, { passive: false });
+    frame.addEventListener('keydown', (e) => {
+      if (mode !== 'photo' || e.target !== frame) return;
+      const step = frame.clientWidth * 0.03;
+      const keys = {
+        ArrowLeft: () => panBy(step, 0), ArrowRight: () => panBy(-step, 0),
+        ArrowUp: () => panBy(0, step), ArrowDown: () => panBy(0, -step),
+        '+': () => zoomAt(1.1, 0, 0), '=': () => zoomAt(1.1, 0, 0), '-': () => zoomAt(1 / 1.1, 0, 0),
+      };
+      if (keys[e.key]) { e.preventDefault(); keys[e.key](); }
+    });
+    if ('ResizeObserver' in window) {
+      const ro = new ResizeObserver(layout);
+      ro.observe(frame);
+      onLeave(() => ro.disconnect());
+    }
+
+    if (photo) await showPhoto(photo, false); else setMode('empty');
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      if (!photo) { showError('Add a photo first. That\'s the one thing each week needs.'); drop.focus(); return; }
+      if (mode === 'camera') { showError('Take the photo first, or cancel the camera.'); return; }
+      if (!photo) { showError("Add a photo first. That's the one thing each week needs."); emptyEl.focus(); return; }
       const btn = $('#save');
       btn.disabled = true;
       const stamp = new Date().toISOString();
       try {
+        const toSave = adjusted && photoReady ? (await framedBlob()) || photo : photo;
         await store.put({
-          id: leafId(year, week), year, week, photo,
+          id, year, week, photo: toSave,
           title: $('#title').value.trim(),
           note: $('#note').value.trim(),
           place: $('#place').value.trim(),
@@ -573,6 +842,421 @@
     });
   }
 
+  /* ---------------------------------------------------------------- year in review
+   * A contact sheet of all 52 weeks (one row per quarter) and a timelapse of the year,
+   * both drawn on a canvas and saved as files on this device.
+   */
+  const INK = '#2B2B28', CREAM = '#F4F1EA', GREEN = '#3F5A3C', LINE = '#DDD7C9', FAINT = '#CFC9BA', MUTED = '#6B6A63';
+
+  async function decodePhoto(blob) {
+    if ('createImageBitmap' in window) {
+      try { return await createImageBitmap(blob); } catch (e) { /* fall back to <img> */ }
+    }
+    const { img, url } = await loadImage(blob);
+    URL.revokeObjectURL(url);
+    return img;
+  }
+  const srcSize = (s) => ({ w: s.naturalWidth || s.width, h: s.naturalHeight || s.height });
+  // Draw src cropped to fill the box, like CSS object-fit: cover.
+  function drawCover(ctx, src, x, y, w, h) {
+    const { w: sw, h: sh } = srcSize(src);
+    let cw = sw, ch = sh;
+    if (sw / sh > w / h) cw = sh * (w / h); else ch = sw / (w / h);
+    ctx.drawImage(src, (sw - cw) / 2, (sh - ch) / 2, cw, ch, x, y, w, h);
+  }
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  async function fontsReady() {
+    if (!document.fonts) return;
+    await Promise.all(['500 72px Fraunces', '500 28px Inter', '400 28px Inter'].map((f) => document.fonts.load(f).catch(() => null)));
+  }
+  const toBlob = (canvas, type, q) => new Promise((r) => canvas.toBlob(r, type, q));
+
+  async function saveFile(blob, name) {
+    const file = typeof File === 'function' ? new File([blob], name, { type: blob.type }) : null;
+    const touch = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+    if (file && touch && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+  }
+
+  async function buildSheet(year, byWeek) {
+    await fontsReady();
+    const tile = 220, gap = 14, cols = 13, rows = 4, pad = 96, head = 190, foot = 96;
+    const W = pad * 2 + cols * tile + (cols - 1) * gap;
+    const H = pad + head + rows * tile + (rows - 1) * gap + foot + pad / 2;
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = CREAM;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = INK;
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = '500 96px Fraunces, Georgia, serif';
+    ctx.fillText(String(year), pad, pad + 96);
+    ctx.fillStyle = MUTED;
+    ctx.font = '400 30px Inter, system-ui, sans-serif';
+    ctx.fillText(`${byWeek.size} of ${WEEKS} weeks · one photo of nature, every week`, pad, pad + 150);
+
+    for (let w = 1; w <= WEEKS; w++) {
+      const col = (w - 1) % cols, row = Math.floor((w - 1) / cols);
+      const x = pad + col * (tile + gap), y = pad + head + row * (tile + gap);
+      const leaf = byWeek.get(w);
+      ctx.save();
+      roundRect(ctx, x, y, tile, tile, 18);
+      if (leaf) {
+        ctx.clip();
+        const src = await decodePhoto(leaf.photo);
+        drawCover(ctx, src, x, y, tile, tile);
+        if (src.close) src.close();
+      } else {
+        ctx.strokeStyle = LINE;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = FAINT;
+        ctx.font = '500 30px Inter, system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(w), x + tile / 2, y + tile / 2);
+      }
+      ctx.restore();
+    }
+
+    ctx.fillStyle = GREEN;
+    ctx.font = '600 30px Fraunces, Georgia, serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('52nd Leaf', pad, H - pad / 2 - 20);
+    ctx.fillStyle = MUTED;
+    ctx.font = '400 26px Inter, system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText('Each row is a quarter: 13 weeks', W - pad, H - pad / 2 - 20);
+    return toBlob(c, 'image/jpeg', 0.92);
+  }
+
+  /* Timelapse: title card, each leaf with a crossfade, end card. Drawn in real time so the
+   * same loop can play in the page or be recorded with MediaRecorder. */
+  function makeTimelapse(canvas, year, leaves) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const TITLE = 1500, HOLD = 600, FADE = 280, END = 2000;
+    const frames = new Map();
+    let stopped = false;
+
+    function prep(i) {
+      if (i < 0 || i >= leaves.length) return Promise.resolve(null);
+      if (!frames.has(i)) {
+        frames.set(i, (async () => {
+          const src = await decodePhoto(leaves[i].photo);
+          const c = document.createElement('canvas');
+          c.width = W; c.height = H;
+          drawCover(c.getContext('2d'), src, 0, 0, W, H);
+          if (src.close) src.close();
+          return c;
+        })());
+      }
+      return frames.get(i);
+    }
+    function free(i) {
+      const p = frames.get(i);
+      if (!p) return;
+      frames.delete(i);
+      p.then((c) => { if (c) c.width = c.height = 0; });
+    }
+
+    function card(big, small, line) {
+      ctx.fillStyle = GREEN;
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = CREAM;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+      ctx.font = '500 200px Fraunces, Georgia, serif';
+      ctx.fillText(big, W / 2, H / 2 + 40);
+      ctx.font = '500 44px Inter, system-ui, sans-serif';
+      ctx.fillText(small, W / 2, H / 2 + 140);
+      ctx.globalAlpha = 0.75;
+      ctx.font = '400 32px Inter, system-ui, sans-serif';
+      ctx.fillText(line, W / 2, H - 120);
+      ctx.globalAlpha = 1;
+    }
+    const titleCard = () => card(String(year), '52nd Leaf', 'One photo of nature, every week');
+    const endCard = () => card(String(leaves.length), leaves.length === 1 ? 'leaf this year' : 'leaves this year', 'What will you notice next year?');
+
+    function photoFrame(i, img) {
+      const leaf = leaves[i];
+      ctx.drawImage(img, 0, 0);
+      const g = ctx.createLinearGradient(0, H - 380, 0, H);
+      g.addColorStop(0, 'rgba(0,0,0,0)');
+      g.addColorStop(1, 'rgba(0,0,0,0.55)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, H - 380, W, 380);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.font = '500 72px Fraunces, Georgia, serif';
+      ctx.fillText(`Week ${leaf.week}`, 72, H - 150);
+      ctx.globalAlpha = 0.85;
+      ctx.font = '400 34px Inter, system-ui, sans-serif';
+      ctx.fillText(`${formatRange(leaf.year, leaf.week)} · ${season(leaf.year, leaf.week)}`, 72, H - 100);
+      ctx.globalAlpha = 1;
+      // 52 ticks: where in the year this photo sits.
+      const x0 = 72, x1 = W - 72, step = (x1 - x0) / WEEKS;
+      for (let w = 1; w <= WEEKS; w++) {
+        ctx.fillStyle = w === leaf.week ? '#FFFFFF' : w < leaf.week ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.22)';
+        const h = w === leaf.week ? 22 : 10;
+        ctx.fillRect(x0 + (w - 1) * step + 1, H - 56 - h, Math.max(2, step - 4), h);
+      }
+    }
+
+    const tick = () => new Promise((r) => requestAnimationFrame(r));
+    async function animate(ms, draw) {
+      const t0 = performance.now();
+      for (;;) {
+        if (stopped) throw new Error('stopped');
+        const p = Math.min(1, (performance.now() - t0) / ms);
+        draw(p);
+        if (p >= 1) return;
+        await tick();
+      }
+    }
+    async function fadeBetween(drawA, drawB) {
+      await animate(FADE, (p) => {
+        drawA();
+        ctx.globalAlpha = p;
+        drawB();
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    async function play(onProgress) {
+      stopped = false;
+      await fontsReady();
+      let cur = await prep(0);
+      prep(1);
+      await animate(TITLE, titleCard);
+      await fadeBetween(titleCard, () => photoFrame(0, cur));
+      for (let i = 0; i < leaves.length; i++) {
+        onProgress && onProgress(i + 1, leaves.length);
+        await animate(HOLD, () => photoFrame(i, cur));
+        if (i === leaves.length - 1) break;
+        const next = await prep(i + 1);
+        prep(i + 2);
+        const a = cur;
+        await fadeBetween(() => photoFrame(i, a), () => photoFrame(i + 1, next));
+        free(i);
+        cur = next;
+      }
+      const last = cur, li = leaves.length - 1;
+      await fadeBetween(() => photoFrame(li, last), endCard);
+      await animate(END, endCard);
+      [...frames.keys()].forEach(free);
+    }
+
+    return {
+      play,
+      stop() { stopped = true; [...frames.keys()].forEach(free); },
+      still: titleCard,
+      seconds: Math.round((TITLE + FADE + leaves.length * (HOLD + FADE) + END) / 1000),
+    };
+  }
+
+  function pickVideoType() {
+    if (!('MediaRecorder' in window) || !HTMLCanvasElement.prototype.captureStream) return null;
+    const types = ['video/mp4;codecs=avc1.42E01E', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+    return types.find((t) => MediaRecorder.isTypeSupported(t)) || null;
+  }
+
+  async function viewReview(yearParam) {
+    const n = now();
+    const year = yearParam || n.year;
+    const leaves = (await store.all()).filter((l) => l.year === year);
+    header('main', 'journal');
+    setTitle(`${year} in review`);
+
+    if (!leaves.length) {
+      footer('');
+      $('#app').innerHTML = `<section class="notice">
+        <p class="eyebrow">Year in review</p>
+        <h1 class="display">No leaves in ${year} yet.</h1>
+        <p class="lede">Your review fills in as you save a photo each week.</p>
+        <a href="#/add" class="btn-primary">Add this week's photo</a></section>`;
+      return;
+    }
+
+    const byWeek = new Map(leaves.map((l) => [l.week, l]));
+    const done = year < n.year || (year === n.year && n.week === WEEKS);
+    const left = year === n.year ? WEEKS - n.week : 0;
+    const sub = done
+      ? `${leaves.length} of ${WEEKS} weeks saved. Here's how the year looked.`
+      : `${leaves.length} so far, with ${left} ${left === 1 ? 'week' : 'weeks'} to go. This page grows as the year does.`;
+    const videoType = pickVideoType();
+    const quarters = ['Jan–Mar', 'Apr–Jun', 'Jul–Sep', 'Oct–Dec'];
+
+    let sheetRows = '';
+    for (let q = 0; q < 4; q++) {
+      let cells = '';
+      for (let w = q * 13 + 1; w <= q * 13 + 13; w++) {
+        const leaf = byWeek.get(w);
+        cells += leaf
+          ? `<a href="#/leaf/${year}/${w}" aria-label="Week ${w}"><img src="${urlFor(leaf.photo)}" alt="" loading="lazy"></a>`
+          : `<span class="cell-empty" aria-hidden="true">${w}</span>`;
+      }
+      sheetRows += `<div class="sheet-row"><span class="q">Wk ${q * 13 + 1}–${q * 13 + 13}<small>${quarters[q]}</small></span><div class="sheet-cells">${cells}</div></div>`;
+    }
+
+    $('#app').innerHTML = `
+      <section class="review-head">
+        <p class="eyebrow">Year in review</p>
+        <h1 class="display">Your ${year} in ${leaves.length} ${leaves.length === 1 ? 'leaf' : 'leaves'}</h1>
+        <p class="lede">${sub}</p>
+      </section>
+
+      <section class="review-block" aria-labelledby="sheet-h">
+        <div class="section-head">
+          <h2 class="h2" id="sheet-h">The year at a glance</h2>
+          <button type="button" class="btn-ghost btn-sm" id="save-sheet">Save as image</button>
+        </div>
+        <div class="sheet">${sheetRows}</div>
+        <p class="review-note" id="sheet-status" role="status"></p>
+      </section>
+
+      <section class="review-block" aria-labelledby="tl-h">
+        <div class="section-head"><h2 class="h2" id="tl-h">Timelapse</h2></div>
+        <div class="tl">
+          <canvas id="tl" width="1080" height="1350" aria-label="Timelapse of your ${year} photos"></canvas>
+          <video id="tl-video" controls playsinline hidden></video>
+          <div class="tl-side">
+            <p class="lede" style="font-size:16px">Every leaf in order, about ${makeTimelapse(document.createElement('canvas'), year, leaves).seconds} seconds long, with a marker showing where each week sits in the year.</p>
+            <div class="actions" style="padding-top:0">
+              <button type="button" class="btn-primary btn-sm" id="tl-play">Play</button>
+              ${videoType ? '<button type="button" class="btn-ghost btn-sm" id="tl-record">Save as video</button>' : ''}
+            </div>
+            <p class="review-note" id="tl-status" role="status">${videoType ? '' : "This browser can play the timelapse but can't save it as a video."}</p>
+            <div class="actions" style="padding-top:0" id="tl-result" hidden>
+              <button type="button" class="btn-primary btn-sm" id="tl-download">Download video</button>
+              <button type="button" class="text-btn" id="tl-back">Back to preview</button>
+            </div>
+          </div>
+        </div>
+      </section>`;
+    footer(`${leaves.length} of ${WEEKS} weeks saved`);
+
+    /* contact sheet */
+    const sheetBtn = $('#save-sheet'), sheetStatus = $('#sheet-status');
+    sheetBtn.addEventListener('click', async () => {
+      sheetBtn.disabled = true;
+      sheetStatus.textContent = 'Making your image…';
+      try {
+        const blob = await buildSheet(year, byWeek);
+        await saveFile(blob, `52nd-leaf-${year}.jpg`);
+        sheetStatus.textContent = 'Saved.';
+      } catch (e) {
+        sheetStatus.textContent = "The image couldn't be made. Try again, or try another browser.";
+      } finally {
+        sheetBtn.disabled = false;
+      }
+    });
+
+    /* timelapse */
+    const canvas = $('#tl'), videoEl = $('#tl-video'), playBtn = $('#tl-play'), recBtn = $('#tl-record');
+    const status = $('#tl-status'), result = $('#tl-result');
+    const tl = makeTimelapse(canvas, year, leaves);
+    let running = null; // 'play' | 'record'
+    let recorded = null;
+    fontsReady().then(() => { if (!running) tl.still(); });
+    tl.still();
+
+    function setRunning(kind) {
+      running = kind;
+      playBtn.textContent = kind === 'play' ? 'Stop' : 'Play';
+      playBtn.disabled = kind === 'record';
+      if (recBtn) recBtn.disabled = !!kind;
+    }
+    const onHide = () => { if (document.hidden && running) tl.stop(); };
+    document.addEventListener('visibilitychange', onHide);
+    onLeave(() => { tl.stop(); document.removeEventListener('visibilitychange', onHide); if (videoEl.src) URL.revokeObjectURL(videoEl.src); });
+
+    playBtn.addEventListener('click', async () => {
+      if (running === 'play') { tl.stop(); return; }
+      setRunning('play');
+      status.textContent = '';
+      try {
+        await tl.play();
+      } catch (e) { /* stopped */ }
+      setRunning(null);
+      tl.still();
+    });
+
+    if (recBtn) recBtn.addEventListener('click', async () => {
+      setRunning('record');
+      const chunks = [];
+      let rec;
+      try {
+        rec = new MediaRecorder(canvas.captureStream(30), { mimeType: videoType, videoBitsPerSecond: 8e6 });
+      } catch (e) {
+        status.textContent = "This browser can't record video here. You can still play the timelapse.";
+        setRunning(null);
+        return;
+      }
+      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      const stoppedRec = new Promise((r) => { rec.onstop = r; });
+      rec.start(250);
+      let ok = true;
+      try {
+        await tl.play((i, total) => {
+          status.textContent = `Recording leaf ${i} of ${total}. Keep this page open.`;
+        });
+      } catch (e) { ok = false; }
+      rec.stop();
+      await stoppedRec;
+      setRunning(null);
+      if (!ok) {
+        status.textContent = 'Recording stopped because the page was hidden or closed. Try again and keep it open.';
+        tl.still();
+        return;
+      }
+      const type = (rec.mimeType || videoType).split(';')[0];
+      recorded = new Blob(chunks, { type });
+      if (videoEl.src) URL.revokeObjectURL(videoEl.src);
+      videoEl.src = URL.createObjectURL(recorded);
+      canvas.hidden = true;
+      videoEl.hidden = false;
+      result.hidden = false;
+      playBtn.hidden = true;
+      recBtn.hidden = true;
+      status.textContent = `Your video is ready (${(recorded.size / 1e6).toFixed(1)} MB).`;
+    });
+
+    $('#tl-download').addEventListener('click', () => {
+      if (recorded) saveFile(recorded, `52nd-leaf-${year}.${/mp4/.test(recorded.type) ? 'mp4' : 'webm'}`);
+    });
+    $('#tl-back').addEventListener('click', () => {
+      videoEl.pause();
+      videoEl.hidden = true;
+      canvas.hidden = false;
+      result.hidden = true;
+      playBtn.hidden = false;
+      if (recBtn) recBtn.hidden = false;
+      status.textContent = '';
+      tl.still();
+    });
+  }
+
   function viewNotFound(msg, addHref) {
     header('main', '');
     setTitle('Not found');
@@ -602,6 +1286,7 @@
     const parts = hash.split('/').filter(Boolean);
     const num = (s) => (s && /^\d+$/.test(s) ? parseInt(s, 10) : null);
     const routeKey = parts[0] === 'how' ? '' : hash;
+    runCleanups();
     releaseUrls();
     try {
       switch (parts[0] || '') {
@@ -609,6 +1294,7 @@
         case 'how': await viewHome(true); break;
         case 'journal': await viewJournal(num(parts[1])); break;
         case 'add': await viewEntry(num(parts[1]), num(parts[2])); break;
+        case 'review': await viewReview(num(parts[1])); break;
         case 'leaf': {
           const y = num(parts[1]), w = num(parts[2]);
           if (y && w) await viewLeaf(y, w); else viewNotFound();
